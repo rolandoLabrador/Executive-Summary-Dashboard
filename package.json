@@ -1,0 +1,46 @@
+{
+  "name": "omnishield-executive-report",
+  "version": "1.0.0",
+  "description": "Automated MongoDB to Excel executive warranty reporting",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "start": "ts-node src/index.ts",
+    "build": "tsc",
+    "report": "ts-node src/index.ts",
+    "test": "ts-node tests/report.transformer.test.ts",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run format:check && npm run lint && npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [],
+  "author": "OmniShield",
+  "license": "ISC",
+  "dependencies": {
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@octokit/rest": "^22.0.1",
+    "@sendgrid/mail": "^8.1.6",
+    "csv-parse": "^6.2.1",
+    "csv-stringify": "^6.7.0",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "isomorphic-fetch": "^3.0.0",
+    "mongodb": "^7.3.0",
+    "openai": "^6.42.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^20.0.0",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.9.0",
+    "prettier": "^3.9.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "8.50.0"
+  }
+}
