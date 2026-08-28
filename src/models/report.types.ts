@@ -20,6 +20,8 @@ export interface MongoSourceConfig {
   cancellationCollection: string;
   claimDb: string;
   claimCollection: string;
+  auditDb?: string;
+  auditCollection?: string;
 }
 
 export interface EmailConfig {
@@ -64,6 +66,10 @@ export interface NormalizedClaim {
   dealer: string;
   dealerName: string;
   product: string;
+  coverageName: string;
+  vehicleMake: string;
+  lossCode: string;
+  lossCodeDescription: string;
 }
 
 export interface MetricValues {
@@ -110,11 +116,76 @@ export interface DimensionMetric extends MetricValues {
   relatedAgents?: string[];
 }
 
+export interface LossCodeKpis {
+  totalPaid: number;
+  claimCount: number;
+  lossCodeCount: number;
+  averagePaidPerClaim: number | null;
+}
+
+export interface LossCodeMetric {
+  code: string;
+  description: string;
+  coverageNames: string[];
+  currentMonthPaid: number;
+  yearToDatePaid: number;
+  rolling12Paid: number;
+  rolling12PaidShare: number | null;
+  rolling12ClaimCount: number;
+  rolling12AveragePaidPerClaim: number | null;
+}
+
+export interface VehicleMakeMetric {
+  make: string;
+  paidAmount: number;
+  claimCount: number;
+  paidShare: number | null;
+}
+
+export interface LossCodeDashboard {
+  currentMonth: LossCodeKpis;
+  yearToDate: LossCodeKpis;
+  rolling12: LossCodeKpis;
+  rows: LossCodeMetric[];
+  topVehicleMakes: VehicleMakeMetric[];
+}
+
 export interface DataQualityIssue {
   severity: 'Warning' | 'Error';
   category: string;
+  contractNumber: string;
+  dealerName: string;
   sourceId: string;
   message: string;
+}
+
+export interface PipelineAuditRecord {
+  jobType: 'Contract' | 'Cancel' | 'Claim' | string;
+  executionTimestamp: Date;
+  executionDateStr: string;
+  dateRange: {
+    startDate: string;
+    endDate: string;
+  };
+  counts: {
+    portalCount: number;
+    processedCount: number;
+    uploadedCount: number;
+  };
+  reconciliation: {
+    isMatch: boolean;
+    portalVsProcessedDiff: number;
+    processedVsUploadedDiff: number;
+    status: 'PASSED' | 'DISCREPANCY' | 'FAILED' | string;
+    summary: string;
+  };
+  fileMetadata: {
+    fileName: string;
+  };
+  systemInfo?: {
+    environment?: string;
+    source?: string;
+  };
 }
 
 export interface ReportModel {
@@ -128,9 +199,11 @@ export interface ReportModel {
   dealers: DimensionMetric[];
   agents: DimensionMetric[];
   products: DimensionMetric[];
+  lossCodeDashboard: LossCodeDashboard;
   contractTransactions: NormalizedContractTransaction[];
   claims: NormalizedClaim[];
   dataQualityIssues: DataQualityIssue[];
+  pipelineAudits: PipelineAuditRecord[];
   sourceCounts: {
     contractDocuments: number;
     cancellationDocuments: number;

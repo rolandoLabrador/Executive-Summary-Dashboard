@@ -1,15 +1,23 @@
 import {
   type DataQualityIssue,
   type DimensionMetric,
+  type LossCodeDashboard,
+  type LossCodeKpis,
+  type LossCodeMetric,
   type MetricValues,
   type MonthlyMetric,
   type NormalizedClaim,
   type NormalizedContractTransaction,
+  type PipelineAuditRecord,
   type ReportConfig,
   type ReportModel,
   type TransactionType,
   type UnknownDocument,
+  type VehicleMakeMetric,
 } from '../models/report.types';
+
+const UNMAPPED_LOSS_CODE = 'UNMAPPED';
+const UNAVAILABLE_LOSS_DESCRIPTION = 'Description unavailable';
 
 const EMPTY_METRICS: MetricValues = {
   contractsWritten: 0,
@@ -186,7 +194,9 @@ function aggregate(
   }
   result.activeContracts = [...latestState.values()].filter(
     (transaction) =>
-      transaction.contractStatus === 'A' && inRange(transaction.activityDate, start, end),
+      transaction.contractStatus === 'A' &&
+      transaction.transactionType !== 'Cancellation' &&
+      inRange(transaction.activityDate, start, end),
   ).length;
 
   for (const transaction of transactions) {
@@ -222,6 +232,8 @@ function normalizeContract(
 ): NormalizedContractTransaction | null {
   const metadata = record(document.metadata);
   const sourceId = idOf(document);
+  const contractNumber = businessId(metadata['Contract#']);
+  const dealerName = text(metadata.DealerName);
   const transactionType = classify(
     metadata['Status(NewBusiness,Cancellation,Upgrade,Adjustment)'],
     metadata.ContractStatus,
@@ -235,6 +247,8 @@ function normalizeContract(
     issues.push({
       severity: 'Error',
       category: isCancellation ? 'Missing Cancel Bill Date' : 'Missing Activation Date',
+      contractNumber,
+      dealerName,
       sourceId,
       message: isCancellation
         ? 'Cancellation is excluded because metadata.CancelBillDate is blank or invalid.'
@@ -244,11 +258,12 @@ function normalizeContract(
   }
   if (activityDate > config.asOfDate) return null;
 
-  const contractNumber = businessId(metadata['Contract#']);
   if (!contractNumber) {
     issues.push({
       severity: 'Error',
       category: 'Missing Contract Number',
+      contractNumber,
+      dealerName,
       sourceId,
       message: 'Contract transaction has no contract number.',
     });
@@ -257,6 +272,8 @@ function normalizeContract(
     issues.push({
       severity: 'Warning',
       category: 'Unknown Transaction',
+      contractNumber,
+      dealerName,
       sourceId,
       message: 'Transaction type could not be classified and is excluded from KPIs.',
     });
@@ -326,6 +343,8 @@ function normalizeClaim(
   issues: DataQualityIssue[],
 ): NormalizedClaim | null {
   const sourceId = idOf(document);
+  const contractNumber = businessId(document['Contract Number']);
+  const dealerName = text(document['Selling Dealer Name'] ?? document.DealerName);
   const status = text(document['Claim Status'] ?? document['Claim Detail Status']);
   const activity = text(document.Activity);
   const paid = number(document['Total Paid Amount']);
@@ -337,6 +356,8 @@ function normalizeClaim(
     issues.push({
       severity: 'Error',
       category: 'Invalid Claim Date',
+      contractNumber,
+      dealerName,
       sourceId,
       message: 'Paid claim has no usable paid or reported date.',
     });
@@ -345,7 +366,6 @@ function normalizeClaim(
   if (activityDate > asOfDate) return null;
 
   const claimNumber = businessId(document['Claim Number']);
-  const contractNumber = businessId(document['Contract Number']);
   const paidDateKey = text(document['Date Paid'] ?? document['Claim Date Claim is Reported']);
   const paymentParts = [
     claimNumber,
@@ -378,6 +398,13 @@ function normalizeClaim(
       ) || 'Unknown Dealer',
     dealerName: text(document['Selling Dealer Name'] ?? document.DealerName),
     product: text(document['Product Type'] ?? document.ProductType) || 'Unmapped Product Type',
+    coverageName: text(document['Coverage Name'] ?? document.CoverageName),
+    vehicleMake:
+      text(document.Make ?? document['Vehicle Make'])
+        .replace(/\s+/g, ' ')
+        .toUpperCase() || 'UNMAPPED MAKE',
+    lossCode: businessId(document['Loss Code']) || UNMAPPED_LOSS_CODE,
+    lossCodeDescription: text(document['Loss Code Description']) || UNAVAILABLE_LOSS_DESCRIPTION,
   };
 }
 
@@ -473,6 +500,134 @@ function dimensionMetrics(
   return rows.sort((a, b) => b.netReserve - a.netReserve || a.name.localeCompare(b.name));
 }
 
+function claimsInRange(claims: NormalizedClaim[], start: Date, end: Date): NormalizedClaim[] {
+  return claims.filter((claim) => inRange(claim.activityDate, start, end));
+}
+
+function distinctClaimCount(claims: NormalizedClaim[]): number {
+  return new Set(claims.map((claim) => claim.claimNumber || claim.sourceId)).size;
+}
+
+function lossCodeKpis(claims: NormalizedClaim[], start: Date, end: Date): LossCodeKpis {
+  const selected = claimsInRange(claims, start, end);
+  const totalPaid = selected.reduce((sum, claim) => sum + claim.paidAmount, 0);
+  const claimCount = distinctClaimCount(selected);
+  return {
+    totalPaid,
+    claimCount,
+    lossCodeCount: new Set(selected.map((claim) => claim.lossCode)).size,
+    averagePaidPerClaim: claimCount > 0 ? totalPaid / claimCount : null,
+  };
+}
+
+function preferredLossCodeDescription(claims: NormalizedClaim[]): string {
+  const frequencies = new Map<string, number>();
+  for (const claim of claims) {
+    if (claim.lossCodeDescription === UNAVAILABLE_LOSS_DESCRIPTION) continue;
+    frequencies.set(
+      claim.lossCodeDescription,
+      (frequencies.get(claim.lossCodeDescription) ?? 0) + 1,
+    );
+  }
+  return (
+    [...frequencies.entries()].sort(
+      ([leftDescription, leftCount], [rightDescription, rightCount]) =>
+        rightCount - leftCount || leftDescription.localeCompare(rightDescription),
+    )[0]?.[0] ?? UNAVAILABLE_LOSS_DESCRIPTION
+  );
+}
+
+function topVehicleMakes(
+  claims: NormalizedClaim[],
+  start: Date,
+  end: Date,
+  limit = 10,
+): VehicleMakeMetric[] {
+  const selected = claimsInRange(claims, start, end);
+  const totalPaid = selected.reduce((sum, claim) => sum + claim.paidAmount, 0);
+  const aggregates = new Map<string, { paidAmount: number; claimNumbers: Set<string> }>();
+  for (const claim of selected) {
+    const aggregate = aggregates.get(claim.vehicleMake) ?? {
+      paidAmount: 0,
+      claimNumbers: new Set<string>(),
+    };
+    aggregate.paidAmount += claim.paidAmount;
+    aggregate.claimNumbers.add(claim.claimNumber || claim.sourceId);
+    aggregates.set(claim.vehicleMake, aggregate);
+  }
+  return [...aggregates.entries()]
+    .map(([make, aggregate]) => ({
+      make,
+      paidAmount: aggregate.paidAmount,
+      claimCount: aggregate.claimNumbers.size,
+      paidShare: totalPaid !== 0 ? aggregate.paidAmount / totalPaid : null,
+    }))
+    .filter((row) => row.paidAmount > 0)
+    .sort(
+      (left, right) => right.paidAmount - left.paidAmount || left.make.localeCompare(right.make),
+    )
+    .slice(0, Math.max(0, limit));
+}
+
+function buildLossCodeDashboard(
+  claims: NormalizedClaim[],
+  currentStart: Date,
+  currentEnd: Date,
+  yearToDateStart: Date,
+  rolling12Start: Date,
+): LossCodeDashboard {
+  const currentMonth = lossCodeKpis(claims, currentStart, currentEnd);
+  const yearToDate = lossCodeKpis(claims, yearToDateStart, currentEnd);
+  const rolling12 = lossCodeKpis(claims, rolling12Start, currentEnd);
+  const rollingClaims = claimsInRange(claims, rolling12Start, currentEnd);
+  const claimsByLossCode = new Map<string, NormalizedClaim[]>();
+  for (const claim of rollingClaims) {
+    const matching = claimsByLossCode.get(claim.lossCode) ?? [];
+    matching.push(claim);
+    claimsByLossCode.set(claim.lossCode, matching);
+  }
+
+  const rows: LossCodeMetric[] = [...claimsByLossCode.entries()].map(([code, matching]) => {
+    const currentMonthPaid = claimsInRange(matching, currentStart, currentEnd).reduce(
+      (sum, claim) => sum + claim.paidAmount,
+      0,
+    );
+    const yearToDatePaid = claimsInRange(matching, yearToDateStart, currentEnd).reduce(
+      (sum, claim) => sum + claim.paidAmount,
+      0,
+    );
+    const rolling12Paid = matching.reduce((sum, claim) => sum + claim.paidAmount, 0);
+    const rolling12ClaimCount = distinctClaimCount(matching);
+    return {
+      code,
+      description: preferredLossCodeDescription(matching),
+      coverageNames: [
+        ...new Set(matching.map((claim) => claim.coverageName || 'Unmapped Coverage Name')),
+      ].sort((left, right) => left.localeCompare(right)),
+      currentMonthPaid,
+      yearToDatePaid,
+      rolling12Paid,
+      rolling12PaidShare: rolling12.totalPaid !== 0 ? rolling12Paid / rolling12.totalPaid : null,
+      rolling12ClaimCount,
+      rolling12AveragePaidPerClaim:
+        rolling12ClaimCount > 0 ? rolling12Paid / rolling12ClaimCount : null,
+    };
+  });
+  rows.sort((left, right) =>
+    right.rolling12Paid !== left.rolling12Paid
+      ? right.rolling12Paid - left.rolling12Paid
+      : left.code.localeCompare(right.code),
+  );
+
+  return {
+    currentMonth,
+    yearToDate,
+    rolling12,
+    rows,
+    topVehicleMakes: topVehicleMakes(claims, rolling12Start, currentEnd),
+  };
+}
+
 export class ReportTransformer {
   constructor(private readonly config: ReportConfig) {}
 
@@ -480,6 +635,7 @@ export class ReportTransformer {
     contractDocuments: UnknownDocument[],
     cancellationDocuments: UnknownDocument[],
     claimDocuments: UnknownDocument[],
+    pipelineAudits: PipelineAuditRecord[] = [],
   ): ReportModel {
     // A report run during an open month is always cut off at the end of the
     // previous month. Apply that cutoff during normalization so current-month
@@ -508,8 +664,9 @@ export class ReportTransformer {
     );
     const normalizedTransactions = [...contractTransactions, ...cancellationTransactions];
 
-    // A cancellation document carries the original WrittenAmount. Use it only when
-    // the new-business transaction is absent, and retain the original activity date.
+    // Preserve the original written side of a canceled contract when the
+    // new-business source is absent. This reference belongs to the original
+    // ActivationDate cohort and retains status C, so it can never be active.
     const writtenContracts = new Set(
       normalizedTransactions
         .filter((item) => item.transactionType !== 'Cancellation' && item.contractNumber)
@@ -606,9 +763,17 @@ export class ReportTransformer {
         (agent) => agent.name.trim().toLowerCase() !== 'test',
       ),
       products: dimensionMetrics('product', transactions, claims, currentStart, currentEnd),
+      lossCodeDashboard: buildLossCodeDashboard(
+        claims,
+        currentStart,
+        currentEnd,
+        ytdStart,
+        rollingStart,
+      ),
       contractTransactions: transactions,
       claims,
       dataQualityIssues: issues,
+      pipelineAudits,
       sourceCounts: {
         contractDocuments: contractDocuments.length,
         cancellationDocuments: cancellationDocuments.length,

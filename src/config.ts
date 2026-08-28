@@ -47,6 +47,8 @@ export function loadMongoSourceConfig(): MongoSourceConfig {
     cancellationCollection: process.env.CANCEL_COLLECTION?.trim() || 'CancelData',
     claimDb: process.env.CLAIM_DB?.trim() || 'ClaimDataDB',
     claimCollection: process.env.CLAIM_COLLECTION?.trim() || 'ClaimData_Claim',
+    auditDb: process.env.AUDIT_DB?.trim() || 'AuditDB',
+    auditCollection: process.env.AUDIT_COLLECTION?.trim() || 'DataReconciliationAudit',
   };
 }
 
