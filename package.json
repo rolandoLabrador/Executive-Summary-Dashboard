@@ -4,10 +4,10 @@
   "description": "Automated MongoDB to Excel executive warranty reporting",
   "main": "dist/src/index.js",
   "scripts": {
-    "start": "ts-node src/index.ts",
+    "start": "node --max-old-space-size=4096 --expose-gc -r ts-node/register src/index.ts",
     "build": "tsc",
-    "report": "ts-node src/index.ts",
-    "test": "ts-node tests/report.transformer.test.ts",
+    "report": "node --max-old-space-size=4096 --expose-gc -r ts-node/register src/index.ts",
+    "test": "node --max-old-space-size=4096 -r ts-node/register tests/report.transformer.test.ts",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
