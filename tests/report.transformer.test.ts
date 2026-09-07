@@ -83,7 +83,7 @@ const sampleAudits = [
     executionTimestamp: new Date('2026-08-28T11:46:07.570Z'),
     executionDateStr: '2026-08-28',
     dateRange: { startDate: '08/28/2024', endDate: '08/28/2026' },
-    counts: { portalCount: 3952, processedCount: 3952, uploadedCount: 3952 },
+    counts: { portalCount: 3952, uniqueCount: 3952, processedCount: 3952, uploadedCount: 3952 },
     reconciliation: {
       isMatch: true,
       portalVsProcessedDiff: 0,
@@ -99,13 +99,13 @@ const sampleAudits = [
     executionTimestamp: new Date('2026-08-28T11:47:42.087Z'),
     executionDateStr: '2026-08-28',
     dateRange: { startDate: '08/28/2024', endDate: '08/28/2026' },
-    counts: { portalCount: 2861, processedCount: 14400, uploadedCount: 14400 },
+    counts: { portalCount: 2864, uniqueCount: 2865, processedCount: 14400, uploadedCount: 14400 },
     reconciliation: {
       isMatch: false,
-      portalVsProcessedDiff: -11539,
+      portalVsProcessedDiff: -11536,
       processedVsUploadedDiff: 0,
       status: 'DISCREPANCY',
-      summary: 'Discrepancy Detected! Portal: 2,861, Processed: 14,400, Uploaded: 14,400',
+      summary: 'Discrepancy Detected! Portal: 2,864, Unique: 2,865, Uploaded: 14,400',
     },
     fileMetadata: { fileName: 'ClaimExport_PROCESSED.csv' },
     systemInfo: { environment: 'GitHub_Actions_CI', source: 'Playwright_ETL_Pipeline' },
@@ -367,32 +367,36 @@ async function verifyWorkbook(): Promise<void> {
     dashboard?.getCell('H4').value,
     '12-MONTH TREND — THROUGH LATEST COMPLETED MONTH',
   );
-  assert.match(String(dashboard?.getCell('A31').value), /^FULL YEAR 2025/);
-  assert.strictEqual(dashboard?.getCell('A32').value, 'Metric');
-  assert.strictEqual(dashboard?.getCell('B32').value, 'Full-Year Result');
+  assert.match(String(dashboard?.getCell('A34').value), /^FULL YEAR 2025/);
+  assert.strictEqual(dashboard?.getCell('A35').value, 'Metric');
+  assert.strictEqual(dashboard?.getCell('B35').value, 'Full-Year Result');
   const dealerDashboard = workbook.getWorksheet('Dealer Dashboard');
-  assert.strictEqual(dealerDashboard?.getCell('D4').value, 'Agents');
-  assert.strictEqual(dealerDashboard?.getCell('D5').value, 'Agent One');
   assert.strictEqual(
     dealerDashboard?.getCell('A2').value,
-    'Rolling 12-month results: 08/01/2025–07/31/2026',
+    'Rolling 12-Month & Latest Month Results | Through 07/31/2026',
   );
+  assert.strictEqual(dealerDashboard?.getCell('D5').value, 'Agents');
+  assert.strictEqual(dealerDashboard?.getCell('D6').value, 'Agent One');
   const agentDashboard = workbook.getWorksheet('Agent Dashboard');
   assert.strictEqual(
     agentDashboard?.getCell('A2').value,
-    'Rolling 12-month results: 08/01/2025–07/31/2026',
+    'Rolling 12-Month & Latest Month Results | Through 07/31/2026',
+  );
+  assert.match(
+    String(agentDashboard?.getCell('A4').value),
+    /^ROLLING 12-MONTH RESULTS/,
   );
   const productDashboard = workbook.getWorksheet('Product Dashboard');
   assert.strictEqual(
     productDashboard?.getCell('A2').value,
-    'Monthly results: 07/01/2026–07/31/2026',
+    'Rolling 12-Month & Latest Month Results | Through 07/31/2026',
   );
-  assert.strictEqual(productDashboard?.getCell('C4').value, 'Reporting Month');
-  assert.strictEqual(
-    (productDashboard?.getCell('C5').value as Date).getTime(),
-    new Date(2026, 6, 1).getTime(),
+  assert.match(
+    String(productDashboard?.getCell('A4').value),
+    /^ROLLING 12-MONTH RESULTS/,
   );
-  assert.strictEqual(productDashboard?.getCell('B5').value, 'VSC');
+  assert.strictEqual(productDashboard?.getCell('B5').value, 'Product');
+  assert.strictEqual(productDashboard?.getCell('B6').value, 'VSC');
   const lossCodeDashboard = workbook.getWorksheet('Loss Code Dashboard');
   assert.strictEqual(
     lossCodeDashboard?.getCell('A2').value,
@@ -500,12 +504,14 @@ async function verifyWorkbook(): Promise<void> {
   assert.strictEqual(dataQuality?.getCell('B6').value, 'Cancel');
   assert.strictEqual(dataQuality?.getCell('C6').value, 3952);
   assert.strictEqual(dataQuality?.getCell('D6').value, 3952);
-  assert.strictEqual(dataQuality?.getCell('E6').value, 0);
-  assert.strictEqual(dataQuality?.getCell('A7').value, 'DISCREPANCY');
+  assert.strictEqual(dataQuality?.getCell('E6').value, 3952);
+  assert.strictEqual(dataQuality?.getCell('F6').value, 0);
+  assert.strictEqual(dataQuality?.getCell('A7').value, 'PASSED');
   assert.strictEqual(dataQuality?.getCell('B7').value, 'Claim');
-  assert.strictEqual(dataQuality?.getCell('C7').value, 2861);
-  assert.strictEqual(dataQuality?.getCell('D7').value, 14400);
-  assert.strictEqual(dataQuality?.getCell('E7').value, -11539);
+  assert.strictEqual(dataQuality?.getCell('C7').value, 2864);
+  assert.strictEqual(dataQuality?.getCell('D7').value, 2865);
+  assert.strictEqual(dataQuality?.getCell('E7').value, 14400);
+  assert.strictEqual(dataQuality?.getCell('F7').value, 1);
   assert.strictEqual(dataQuality?.getCell('C19').value, 'Contract Number');
   assert.strictEqual(dataQuality?.getCell('D19').value, 'Dealer Name');
   assert.strictEqual(dataQuality?.getCell('C20').value, 'C-INVALID-DATE');

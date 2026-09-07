@@ -133,6 +133,7 @@ const KPI_DEFINITIONS: MetricDefinition[] = [
   { label: 'Active Contracts', key: 'activeContracts', format: INTEGER },
   { label: 'Net Admin', key: 'netAdmin', format: MONEY },
   { label: 'Net Reserve', key: 'netReserve', format: MONEY },
+  { label: 'Earned Reserve', key: 'earnedReserve', format: MONEY },
   { label: 'Claims Paid', key: 'claimsPaid', format: MONEY },
   { label: 'Paid Loss Ratio', key: 'paidLossRatio', format: PERCENT },
   { label: 'Cancellation Rate', key: 'cancellationRate', format: PERCENT },
@@ -198,11 +199,11 @@ function writeComparison(
   comparison: PeriodComparison,
   priorLabel = 'Prior Year',
 ): number {
-  ws.mergeCells(startRow, 1, startRow, 6);
+  ws.mergeCells(startRow, 1, startRow, 5);
   ws.getCell(startRow, 1).value = heading;
   ws.getCell(startRow, 1).font = { bold: true, size: 14, color: { argb: COLORS.navy } };
   const header = ws.getRow(startRow + 1);
-  header.values = ['Metric', 'Current', priorLabel, 'Change', 'Change %', 'Status'];
+  header.values = ['Metric', 'Current', priorLabel, 'Change', 'Change %'];
   styleHeader(header);
 
   KPI_DEFINITIONS.forEach((definition, index) => {
@@ -216,11 +217,6 @@ function writeComparison(
       prior,
       current - prior,
       changePercent,
-      definition.key === 'paidLossRatio' && current >= 0.8
-        ? 'High'
-        : definition.key === 'paidLossRatio' && current >= 0.65
-          ? 'Watch'
-          : 'OK',
     ];
     [2, 3, 4].forEach((column) => {
       row.getCell(column).numFmt = definition.format;
@@ -236,7 +232,7 @@ function writePeriodSnapshot(
   heading: string,
   period: ReportingPeriod,
 ): number {
-  ws.mergeCells(startRow, 1, startRow, 6);
+  ws.mergeCells(startRow, 1, startRow, 5);
   const titleCell = ws.getCell(startRow, 1);
   titleCell.value = `${heading} ${formatDateRange(period.start, period.end)}`;
   titleCell.font = { bold: true, size: 14, color: { argb: COLORS.navy } };
@@ -252,115 +248,147 @@ function writePeriodSnapshot(
   return startRow + KPI_DEFINITIONS.length + 3;
 }
 
-function writeDimensionSheet(
+function buildTwoTierDimensionSheet(
   workbook: ExcelJS.Workbook,
   name: string,
   heading: string,
-  rows: DimensionMetric[],
+  rollingRows: DimensionMetric[],
+  monthlyRows: DimensionMetric[],
   config: ReportConfig,
-  reportingStart: Date,
-  reportingEnd: Date,
+  rollingStart: Date,
+  currentStart: Date,
+  currentEnd: Date,
   limit?: number,
-  reportingMonth?: Date,
 ): void {
   const ws = workbook.addWorksheet(name);
   configureWorksheet(ws);
+  const isDealer = name === 'Dealer Dashboard';
+  const maxCols = isDealer ? 15 : 13;
   title(
     ws,
     heading,
-    reportingMonth
-      ? `Monthly results: ${formatDateRange(reportingStart, reportingEnd)}`
-      : `Rolling 12-month results: ${formatDateRange(reportingStart, reportingEnd)}`,
+    `Rolling 12-Month & Latest Month Results | Through ${formatDate(currentEnd)}`,
+    maxCols,
   );
-  const selected = limit ? rows.slice(0, limit) : rows;
-  const isDealer = name === 'Dealer Dashboard';
-  const isMonthlyProduct = name === 'Product Dashboard' && reportingMonth !== undefined;
-  const headers = [
-    'Rank',
-    isDealer ? 'Dealer Number' : name.replace(' Dashboard', ''),
-    ...(isDealer ? ['Dealer Name', 'Agents'] : []),
-    ...(isMonthlyProduct ? ['Reporting Month'] : []),
-    'Written',
-    'Active Contracts',
-    'Cancellations Processed',
-    'Net Admin',
-    'Net Reserve',
-    'Claims Paid',
-    'Claim Count',
-    'Paid Loss Ratio',
-    'Cancellation Rate',
-    'Loss Ratio Bar',
-  ];
-  ws.getRow(4).values = headers;
-  styleHeader(ws.getRow(4));
 
-  selected.forEach((item, index) => {
-    const row = ws.getRow(index + 5);
-    row.values = [
-      index + 1,
-      item.name,
-      ...(isDealer
-        ? [item.displayName || 'Name unavailable', item.relatedAgents?.join(', ') || 'Unassigned']
-        : []),
-      ...(isMonthlyProduct ? [reportingMonth] : []),
-      item.contractsWritten,
-      item.activeContracts,
-      item.contractsCancelled,
-      item.netAdmin,
-      item.netReserve,
-      item.claimsPaid,
-      item.claimCount,
-      item.paidLossRatio,
-      item.cancellationRate,
-      item.paidLossRatio,
+  const writeTable = (
+    startRow: number,
+    sectionHeading: string,
+    rows: DimensionMetric[],
+  ): number => {
+    ws.mergeCells(startRow, 1, startRow, maxCols);
+    const headingCell = ws.getCell(startRow, 1);
+    headingCell.value = sectionHeading;
+    headingCell.font = { bold: true, size: 12, color: { argb: COLORS.navy } };
+
+    const selected = limit ? rows.slice(0, limit) : rows;
+    const headers = [
+      'Rank',
+      isDealer ? 'Dealer Number' : name.replace(' Dashboard', ''),
+      ...(isDealer ? ['Dealer Name', 'Agents'] : []),
+      'Written',
+      'Active Contracts',
+      'Cancellations Processed',
+      'Net Admin',
+      'Net Reserve',
+      'Earned Reserve',
+      'Claims Paid',
+      'Claim Count',
+      'Paid Loss Ratio',
+      'Cancellation Rate',
+      'Loss Ratio Bar',
     ];
-    if (isMonthlyProduct) row.getCell(3).numFmt = 'mmmm yyyy';
-    const offset = (isDealer ? 2 : 0) + (isMonthlyProduct ? 1 : 0);
-    [3, 4, 5, 9].forEach((column) => {
-      row.getCell(column + offset).numFmt = INTEGER;
-    });
-    [6, 7, 8].forEach((column) => {
-      row.getCell(column + offset).numFmt = MONEY;
-    });
-    [10, 11, 12].forEach((column) => {
-      row.getCell(column + offset).numFmt = PERCENT;
-    });
-  });
+    ws.getRow(startRow + 1).values = headers;
+    styleHeaderRange(ws, startRow + 1, 1, maxCols);
 
-  if (selected.length > 0) {
-    const lastRow = selected.length + 4;
-    ws.addConditionalFormatting({
-      ref: `${isDealer ? 'N' : isMonthlyProduct ? 'M' : 'L'}5:${isDealer ? 'N' : isMonthlyProduct ? 'M' : 'L'}${lastRow}`,
-      rules: [dataBarRule(1)],
+    selected.forEach((item, index) => {
+      const row = ws.getRow(startRow + 2 + index);
+      row.values = [
+        index + 1,
+        item.name,
+        ...(isDealer
+          ? [item.displayName || 'Name unavailable', item.relatedAgents?.join(', ') || 'Unassigned']
+          : []),
+        item.contractsWritten,
+        item.activeContracts,
+        item.contractsCancelled,
+        item.netAdmin,
+        item.netReserve,
+        item.earnedReserve,
+        item.claimsPaid,
+        item.claimCount,
+        item.paidLossRatio,
+        item.cancellationRate,
+        item.paidLossRatio,
+      ];
+      const offset = isDealer ? 2 : 0;
+      [3, 4, 5, 10].forEach((column) => {
+        row.getCell(column + offset).numFmt = INTEGER;
+      });
+      [6, 7, 8, 9].forEach((column) => {
+        row.getCell(column + offset).numFmt = MONEY;
+      });
+      [11, 12, 13].forEach((column) => {
+        row.getCell(column + offset).numFmt = PERCENT;
+      });
     });
-    ws.addConditionalFormatting({
-      ref: `${isDealer ? 'L' : isMonthlyProduct ? 'K' : 'J'}5:${isDealer ? 'L' : isMonthlyProduct ? 'K' : 'J'}${lastRow}`,
-      rules: [
-        {
-          type: 'cellIs',
-          priority: 2,
-          operator: 'greaterThan',
-          formulae: [config.highLossRatio],
-          style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F4CCCC' } } },
-        },
-        {
-          type: 'cellIs',
-          priority: 3,
-          operator: 'between',
-          formulae: [config.warningLossRatio, config.highLossRatio],
-          style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2CC' } } },
-        },
-      ],
-    });
-  }
+
+    if (selected.length > 0) {
+      const firstDataRow = startRow + 2;
+      const lastDataRow = startRow + 1 + selected.length;
+      const barCol = isDealer ? 'O' : 'M';
+      const ratioCol = isDealer ? 'M' : 'K';
+      ws.addConditionalFormatting({
+        ref: `${barCol}${firstDataRow}:${barCol}${lastDataRow}`,
+        rules: [dataBarRule(1)],
+      });
+      ws.addConditionalFormatting({
+        ref: `${ratioCol}${firstDataRow}:${ratioCol}${lastDataRow}`,
+        rules: [
+          {
+            type: 'cellIs',
+            priority: 2,
+            operator: 'greaterThan',
+            formulae: [config.highLossRatio],
+            style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F4CCCC' } } },
+          },
+          {
+            type: 'cellIs',
+            priority: 3,
+            operator: 'between',
+            formulae: [config.warningLossRatio, config.highLossRatio],
+            style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2CC' } } },
+          },
+        ],
+      });
+    }
+
+    return startRow + selected.length + 4;
+  };
+
+  const monthName = currentStart.toLocaleString('en-US', {
+    month: 'long',
+    year: 'numeric',
+  });
+  const nextRow = writeTable(
+    4,
+    `ROLLING 12-MONTH RESULTS (${formatDateRange(rollingStart, currentEnd)})`,
+    rollingRows,
+  );
+  writeTable(
+    nextRow,
+    `LATEST COMPLETED MONTH — ${monthName.toUpperCase()} (${formatDateRange(currentStart, currentEnd)})`,
+    monthlyRows,
+  );
+
   ws.columns = [
     { width: 8 },
     { width: isDealer ? 16 : 30 },
     ...(isDealer ? [{ width: 34 }, { width: 36 }] : []),
-    ...(isMonthlyProduct ? [{ width: 18 }] : []),
     { width: 12 },
     { width: 12 },
     { width: 14 },
+    { width: 16 },
     { width: 16 },
     { width: 16 },
     { width: 16 },
@@ -369,10 +397,6 @@ function writeDimensionSheet(
     { width: 17 },
     { width: 28 },
   ];
-  ws.autoFilter = {
-    from: 'A4',
-    to: `${isDealer ? 'N' : isMonthlyProduct ? 'M' : 'L'}${Math.max(5, selected.length + 4)}`,
-  };
 }
 
 export class ExcelService {
@@ -387,35 +411,39 @@ export class ExcelService {
     workbook.calcProperties.fullCalcOnLoad = true;
 
     this.buildExecutive(workbook, model);
-    writeDimensionSheet(
+    buildTwoTierDimensionSheet(
       workbook,
       'Dealer Dashboard',
       'DEALER PERFORMANCE DASHBOARD',
       model.dealers,
+      model.monthlyDealers,
       this.config,
       model.rolling12.currentStart,
+      model.currentMonth.currentStart,
       model.currentMonth.currentEnd,
       this.config.topDealerCount,
     );
-    writeDimensionSheet(
+    buildTwoTierDimensionSheet(
       workbook,
       'Agent Dashboard',
       'AGENT PERFORMANCE DASHBOARD',
       model.agents,
+      model.monthlyAgents,
       this.config,
       model.rolling12.currentStart,
+      model.currentMonth.currentStart,
       model.currentMonth.currentEnd,
     );
-    writeDimensionSheet(
+    buildTwoTierDimensionSheet(
       workbook,
       'Product Dashboard',
       'PRODUCT PERFORMANCE DASHBOARD',
       model.products,
+      model.monthlyProducts,
       this.config,
+      model.rolling12.currentStart,
       model.currentMonth.currentStart,
       model.currentMonth.currentEnd,
-      undefined,
-      model.currentMonth.currentStart,
     );
     this.buildLossCodeDashboard(workbook, model);
     this.buildMonthly(workbook, model);
@@ -468,9 +496,8 @@ export class ExcelService {
       { width: 18 },
       { width: 18 },
       { width: 14 },
-      { width: 13 },
-      { width: 3 },
-      { width: 3 },
+      { width: 4 },
+      { width: 4 },
       { width: 12 },
       { width: 12 },
       { width: 12 },
@@ -487,7 +514,7 @@ export class ExcelService {
   }
 
   private writeExecutiveTrend(ws: ExcelJS.Worksheet, model: ReportModel): void {
-    const months = model.monthly.slice(-12);
+    const months = model.monthly.slice(-12).reverse();
     const firstColumn = 8;
     const lastColumn = firstColumn + months.length - 1;
     ws.mergeCells(4, firstColumn, 4, Math.max(firstColumn, lastColumn));
@@ -506,9 +533,9 @@ export class ExcelService {
         pattern: 'solid',
         fgColor: {
           argb:
-            index === months.length - 1
+            index === 0
               ? COLORS.green
-              : index === months.length - 2
+              : index === 1
                 ? COLORS.amber
                 : COLORS.blue,
         },
@@ -518,8 +545,9 @@ export class ExcelService {
 
     const trends: Array<{ row: number; label: string; key: keyof MetricValues; format: string }> = [
       { row: 7, label: 'Net Reserve', key: 'netReserve', format: MONEY },
-      { row: 9, label: 'Claims Paid', key: 'claimsPaid', format: MONEY },
-      { row: 11, label: 'Paid Loss Ratio', key: 'paidLossRatio', format: PERCENT },
+      { row: 9, label: 'Earned Reserve', key: 'earnedReserve', format: MONEY },
+      { row: 11, label: 'Claims Paid', key: 'claimsPaid', format: MONEY },
+      { row: 13, label: 'Paid Loss Ratio', key: 'paidLossRatio', format: PERCENT },
     ];
     trends.forEach(({ row, label, key, format }, trendIndex) => {
       ws.mergeCells(row - 1, firstColumn, row - 1, Math.max(firstColumn, lastColumn));
@@ -540,8 +568,8 @@ export class ExcelService {
       }
     });
 
-    ws.mergeCells(13, firstColumn, 13, Math.max(firstColumn, lastColumn));
-    const note = ws.getCell(13, firstColumn);
+    ws.mergeCells(15, firstColumn, 15, Math.max(firstColumn, lastColumn));
+    const note = ws.getCell(15, firstColumn);
     note.value =
       'Green = latest completed month  |  Amber = preceding month  |  Bars show relative monthly magnitude';
     note.font = { italic: true, color: { argb: COLORS.darkGray } };
@@ -997,11 +1025,12 @@ export class ExcelService {
       ws,
       'DATA QUALITY AND RECONCILIATION',
       `Generated ${model.generatedAt.toLocaleString('en-US')}`,
-      7,
+      8,
     );
 
     let currentRow = 4;
-    ws.mergeCells(currentRow, 1, currentRow, 7);
+
+    ws.mergeCells(currentRow, 1, currentRow, 8);
     const auditHeading = ws.getCell(currentRow, 1);
     auditHeading.value = 'PIPELINE INGESTION AUDIT & RECONCILIATION';
     auditHeading.font = { bold: true, size: 12, color: { argb: COLORS.navy } };
@@ -1012,21 +1041,34 @@ export class ExcelService {
       'Status',
       'Job Type',
       'Portal Count',
-      'Uploaded Count',
+      'Unique Units',
+      'Uploaded Line Items',
       'Variance',
       'Source File',
       'Execution Timestamp (UTC)',
     ];
-    styleHeaderRange(ws, auditHeaderRow, 1, 7);
+    styleHeaderRange(ws, auditHeaderRow, 1, 8);
     currentRow++;
 
     if (model.pipelineAudits && model.pipelineAudits.length > 0) {
       model.pipelineAudits.forEach((audit) => {
+        const portalCount = audit.counts.portalCount;
+        const uniqueUnits = audit.counts.uniqueCount ?? audit.counts.uploadedCount;
+        const uploadedLines = audit.counts.uploadedCount;
+        const unitVariance = uniqueUnits - portalCount;
+
+        const isReconciled =
+          (audit.reconciliation.isMatch && audit.reconciliation.status === 'PASSED') ||
+          (Math.abs(unitVariance) <= Math.max(2, Math.round(portalCount * 0.001)) &&
+            audit.counts.processedCount === audit.counts.uploadedCount);
+
+        const status = isReconciled ? 'PASSED' : audit.reconciliation.status;
+
         const row = ws.getRow(currentRow);
         const statusCell = row.getCell(1);
-        statusCell.value = audit.reconciliation.status;
+        statusCell.value = status;
         statusCell.font = { bold: true };
-        if (audit.reconciliation.isMatch && audit.reconciliation.status === 'PASSED') {
+        if (isReconciled) {
           statusCell.font = { bold: true, color: { argb: '006100' } };
           statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C6EFCE' } };
         } else {
@@ -1036,20 +1078,22 @@ export class ExcelService {
         statusCell.alignment = { horizontal: 'center' };
 
         row.getCell(2).value = audit.jobType;
-        row.getCell(3).value = audit.counts.portalCount;
+        row.getCell(3).value = portalCount;
         row.getCell(3).numFmt = INTEGER;
-        row.getCell(4).value = audit.counts.uploadedCount;
+        row.getCell(4).value = uniqueUnits;
         row.getCell(4).numFmt = INTEGER;
-        row.getCell(5).value = audit.reconciliation.portalVsProcessedDiff;
+        row.getCell(5).value = uploadedLines;
         row.getCell(5).numFmt = INTEGER;
-        row.getCell(6).value = audit.fileMetadata.fileName;
-        row.getCell(7).value = audit.executionTimestamp
+        row.getCell(6).value = unitVariance;
+        row.getCell(6).numFmt = INTEGER;
+        row.getCell(7).value = audit.fileMetadata.fileName;
+        row.getCell(8).value = audit.executionTimestamp
           ? audit.executionTimestamp.toISOString().replace('T', ' ').replace(/\..+/, '')
           : audit.executionDateStr;
         currentRow++;
       });
     } else {
-      ws.mergeCells(currentRow, 1, currentRow, 7);
+      ws.mergeCells(currentRow, 1, currentRow, 8);
       const noAuditCell = ws.getCell(currentRow, 1);
       noAuditCell.value = 'No pipeline audit records found in AuditDB.DataReconciliationAudit.';
       noAuditCell.font = { italic: true, color: { argb: COLORS.darkGray } };
@@ -1115,6 +1159,7 @@ export class ExcelService {
       { width: 32 },
       { width: 28 },
       { width: 60 },
+      { width: 34 },
       { width: 26 },
     ];
   }

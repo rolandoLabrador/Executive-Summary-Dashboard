@@ -51,6 +51,8 @@ export interface NormalizedContractTransaction {
   riskEntity: string;
   adminAmount: number;
   reserveAmount: number;
+  effectiveDate: Date | null;
+  earningSchedule: Record<number, number> | null;
 }
 
 export interface NormalizedClaim {
@@ -83,6 +85,7 @@ export interface MetricValues {
   reserveWritten: number;
   reserveCancelled: number;
   netReserve: number;
+  earnedReserve: number;
   claimsPaid: number;
   claimCount: number;
   paidLossRatio: number | null;
@@ -169,6 +172,7 @@ export interface PipelineAuditRecord {
   };
   counts: {
     portalCount: number;
+    uniqueCount?: number | null;
     processedCount: number;
     uploadedCount: number;
   };
@@ -197,8 +201,11 @@ export interface ReportModel {
   priorCalendarYear: ReportingPeriod;
   monthly: MonthlyMetric[];
   dealers: DimensionMetric[];
+  monthlyDealers: DimensionMetric[];
   agents: DimensionMetric[];
+  monthlyAgents: DimensionMetric[];
   products: DimensionMetric[];
+  monthlyProducts: DimensionMetric[];
   lossCodeDashboard: LossCodeDashboard;
   contractTransactions: NormalizedContractTransaction[];
   claims: NormalizedClaim[];

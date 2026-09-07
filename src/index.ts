@@ -41,7 +41,12 @@ async function extractAndTransformModel(
   );
   if (pipelineAudits.length > 0) {
     console.log(
-      `Pipeline Audits: ${pipelineAudits.map((a) => `${a.jobType}: ${a.reconciliation.status}`).join(' | ')}`,
+      `Pipeline Audits: ${pipelineAudits
+        .map((a) => {
+          const units = a.counts.uniqueCount ?? a.counts.uploadedCount;
+          return `${a.jobType} (${units.toLocaleString()} units / ${a.counts.uploadedCount.toLocaleString()} lines): ${a.reconciliation.status}`;
+        })
+        .join(' | ')}`,
     );
   }
   logMemory('2. After MongoDB Extraction (Raw Documents in RAM)');

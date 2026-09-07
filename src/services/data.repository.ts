@@ -43,6 +43,10 @@ function normalizeAuditRecord(doc: Record<string, unknown>): PipelineAuditRecord
     },
     counts: {
       portalCount: toNumber(counts.portalCount),
+      uniqueCount:
+        counts.uniqueCount !== undefined && counts.uniqueCount !== null
+          ? toNumber(counts.uniqueCount)
+          : null,
       processedCount: toNumber(counts.processedCount),
       uploadedCount: toNumber(counts.uploadedCount),
     },

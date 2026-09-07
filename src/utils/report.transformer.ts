@@ -30,6 +30,7 @@ const EMPTY_METRICS: MetricValues = {
   reserveWritten: 0,
   reserveCancelled: 0,
   netReserve: 0,
+  earnedReserve: 0,
   claimsPaid: 0,
   claimCount: 0,
   paidLossRatio: null,
@@ -156,6 +157,13 @@ function endOfMonth(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth() + 1, 0, 23, 59, 59, 999);
 }
 
+function elapsedMonths(start: Date, end: Date): number {
+  if (start > end) return 0;
+  const years = end.getFullYear() - start.getFullYear();
+  const months = end.getMonth() - start.getMonth();
+  return years * 12 + months + 1;
+}
+
 function inRange(value: Date, start: Date, end: Date): boolean {
   return value >= start && value <= end;
 }
@@ -169,7 +177,7 @@ function finalize(metrics: MetricValues): MetricValues {
   result.netContracts = result.contractsWritten - result.contractsCancelled;
   result.netAdmin = result.adminWritten - result.adminCancelled;
   result.netReserve = result.reserveWritten - result.reserveCancelled;
-  result.paidLossRatio = result.netReserve > 0 ? result.claimsPaid / result.netReserve : null;
+  result.paidLossRatio = result.earnedReserve > 0 ? result.claimsPaid / result.earnedReserve : null;
   result.cancellationRate =
     result.contractsWritten > 0 ? result.contractsCancelled / result.contractsWritten : null;
   result.adminPerContract =
@@ -199,8 +207,25 @@ function aggregate(
       inRange(transaction.activityDate, start, end),
   ).length;
 
+  const contractStates = new Map<
+    string,
+    {
+      written: number;
+      cancelled: number;
+      effectiveDate: Date | null;
+      schedule: Record<number, number> | null;
+    }
+  >();
+
   for (const transaction of transactions) {
     if (!inRange(transaction.activityDate, start, end)) continue;
+
+    let state = contractStates.get(transaction.contractNumber);
+    if (!state) {
+      state = { written: 0, cancelled: 0, effectiveDate: null, schedule: null };
+      contractStates.set(transaction.contractNumber, state);
+    }
+
     if (
       transaction.transactionType !== 'Cancellation' &&
       transaction.transactionType !== 'Unknown'
@@ -208,10 +233,30 @@ function aggregate(
       result.contractsWritten += 1;
       result.adminWritten += transaction.adminAmount;
       result.reserveWritten += transaction.reserveAmount;
+
+      state.written += transaction.reserveAmount;
+      state.effectiveDate = transaction.effectiveDate;
+      state.schedule = transaction.earningSchedule;
     } else if (transaction.transactionType === 'Cancellation') {
       result.contractsCancelled += 1;
       result.adminCancelled += Math.abs(transaction.adminAmount);
       result.reserveCancelled += Math.abs(transaction.reserveAmount);
+
+      state.cancelled += Math.abs(transaction.reserveAmount);
+    }
+  }
+
+  for (const state of contractStates.values()) {
+    const net = state.written - state.cancelled;
+    if (state.cancelled > 0 && state.written > 0) {
+      result.earnedReserve += Math.max(0, net);
+    } else if (state.written > 0) {
+      let factor = 1.0;
+      if (state.schedule && state.effectiveDate) {
+        const elapsed = elapsedMonths(state.effectiveDate, end);
+        factor = elapsed <= 0 ? 0 : state.schedule[elapsed] ?? 1.0;
+      }
+      result.earnedReserve += state.written * factor;
     }
   }
 
@@ -229,15 +274,30 @@ function normalizeContract(
   document: UnknownDocument,
   config: ReportConfig,
   issues: DataQualityIssue[],
+  forceType?: TransactionType,
 ): NormalizedContractTransaction | null {
   const metadata = record(document.metadata);
   const sourceId = idOf(document);
   const contractNumber = businessId(metadata['Contract#']);
   const dealerName = text(metadata.DealerName);
-  const transactionType = classify(
+  
+  let transactionType = forceType || classify(
     metadata['Status(NewBusiness,Cancellation,Upgrade,Adjustment)'],
     metadata.ContractStatus,
   );
+
+  const hasCancelBillDate = firstDate(metadata.CancelBillDate) !== null;
+  if (transactionType !== 'Cancellation' && hasCancelBillDate) {
+    transactionType = 'Cancellation';
+    issues.push({
+      severity: 'Warning',
+      category: 'Data Validation',
+      contractNumber,
+      dealerName,
+      sourceId,
+      message: 'Transaction forced to Cancellation because a CancelBillDate was present, despite status fields.',
+    });
+  }
   const isCancellation = transactionType === 'Cancellation';
   const activityDate = isCancellation
     ? firstDate(metadata.CancelBillDate)
@@ -280,6 +340,19 @@ function normalizeContract(
   }
 
   const amountContainer = isCancellation ? document.CancelledAmount : document.WrittenAmount;
+  
+  const effectiveDate = firstDate(metadata.EffectiveDate, metadata.ActivationDate);
+  const calculated = record(document.CalculatedFields);
+  const earningCurve = record(calculated.EarningCurve);
+  const scheduleObj = record(earningCurve.schedule);
+  const earningSchedule: Record<number, number> = {};
+  for (const [month, data] of Object.entries(scheduleObj)) {
+    const factor = number(record(data).cumulativeFactor);
+    if (factor > 0) {
+      earningSchedule[Number(month)] = factor;
+    }
+  }
+
   return {
     sourceId,
     snapshotDate: snapshotDate(document, metadata),
@@ -297,6 +370,8 @@ function normalizeContract(
     riskEntity: text(metadata.RiskEntity),
     adminAmount: sumComponents(amountContainer, 'ADMIN', config),
     reserveAmount: sumComponents(amountContainer, 'RESERVE', config),
+    effectiveDate,
+    earningSchedule: Object.keys(earningSchedule).length > 0 ? earningSchedule : null,
   };
 }
 
@@ -317,6 +392,19 @@ function normalizeWrittenReferenceFromCancellation(
   if (!activityDate || activityDate > config.asOfDate) return null;
 
   const sourceId = idOf(document);
+  
+  const effectiveDate = firstDate(metadata.EffectiveDate, metadata.ActivationDate);
+  const calculated = record(document.CalculatedFields);
+  const earningCurve = record(calculated.EarningCurve);
+  const scheduleObj = record(earningCurve.schedule);
+  const earningSchedule: Record<number, number> = {};
+  for (const [month, data] of Object.entries(scheduleObj)) {
+    const factor = number(record(data).cumulativeFactor);
+    if (factor > 0) {
+      earningSchedule[Number(month)] = factor;
+    }
+  }
+
   return {
     sourceId: `${sourceId}:written-reference`,
     snapshotDate: snapshotDate(document, metadata),
@@ -334,6 +422,8 @@ function normalizeWrittenReferenceFromCancellation(
     riskEntity: text(metadata.RiskEntity),
     adminAmount: sumComponents(document.WrittenAmount, 'ADMIN', config),
     reserveAmount: sumComponents(document.WrittenAmount, 'RESERVE', config),
+    effectiveDate,
+    earningSchedule: Object.keys(earningSchedule).length > 0 ? earningSchedule : null,
   };
 }
 
@@ -345,7 +435,9 @@ function normalizeClaim(
   const sourceId = idOf(document);
   const contractNumber = businessId(document['Contract Number']);
   const dealerName = text(document['Selling Dealer Name'] ?? document.DealerName);
-  const status = text(document['Claim Status'] ?? document['Claim Detail Status']);
+  const claimStatus = text(document['Claim Status']);
+  const detailStatus = text(document['Claim Detail Status']);
+  const status = claimStatus.toLowerCase() === 'paid' ? claimStatus : (detailStatus.toLowerCase() === 'paid' ? detailStatus : (claimStatus || detailStatus));
   const activity = text(document.Activity);
   const paid = number(document['Total Paid Amount']);
   const activityDate = firstDate(document['Date Paid'], document['Claim Date Claim is Reported']);
@@ -497,7 +589,12 @@ function dimensionMetrics(
       ...aggregate(matchingTransactions, matchingClaims, start, end),
     });
   }
-  return rows.sort((a, b) => b.netReserve - a.netReserve || a.name.localeCompare(b.name));
+  return rows.sort((a, b) => {
+    if (dimension === 'agent') {
+      return b.netAdmin - a.netAdmin || b.netReserve - a.netReserve || a.name.localeCompare(b.name);
+    }
+    return b.netReserve - a.netReserve || a.name.localeCompare(b.name);
+  });
 }
 
 function claimsInRange(claims: NormalizedClaim[], start: Date, end: Date): NormalizedClaim[] {
@@ -649,7 +746,7 @@ export class ReportTransformer {
       .map((item) => normalizeContract(item, reportingConfig, issues))
       .filter((item): item is NormalizedContractTransaction => item !== null);
     const normalizedCancellationSnapshots = cancellationDocuments
-      .map((item) => normalizeContract(item, reportingConfig, issues))
+      .map((item) => normalizeContract(item, reportingConfig, issues, 'Cancellation'))
       .filter((item): item is NormalizedContractTransaction => item !== null);
 
     const contractTransactions = latestSnapshotBy(
@@ -691,9 +788,17 @@ export class ReportTransformer {
     const normalizedClaims = claimDocuments
       .map((item) => normalizeClaim(item, currentEnd, issues))
       .filter((item): item is NormalizedClaim => item !== null);
+    const claimCounts = new Map<string, number>();
     const claims = latestSnapshotBy(
       normalizedClaims,
-      (item) => item.paymentKey || item.sourceId,
+      (item) => {
+        const scrapeDay = item.snapshotDate.toISOString().slice(0, 10);
+        const baseKey = item.paymentKey || item.sourceId;
+        const countKey = `${baseKey}|${scrapeDay}`;
+        const count = (claimCounts.get(countKey) || 0) + 1;
+        claimCounts.set(countKey, count);
+        return count > 1 ? `${baseKey}|dup${count}` : baseKey;
+      },
       (item) => item.snapshotDate,
     );
 
@@ -759,10 +864,15 @@ export class ReportTransformer {
       },
       monthly,
       dealers: dimensionMetrics('dealer', transactions, claims, rollingStart, currentEnd),
+      monthlyDealers: dimensionMetrics('dealer', transactions, claims, currentStart, currentEnd),
       agents: dimensionMetrics('agent', transactions, claims, rollingStart, currentEnd).filter(
         (agent) => agent.name.trim().toLowerCase() !== 'test',
       ),
-      products: dimensionMetrics('product', transactions, claims, currentStart, currentEnd),
+      monthlyAgents: dimensionMetrics('agent', transactions, claims, currentStart, currentEnd).filter(
+        (agent) => agent.name.trim().toLowerCase() !== 'test',
+      ),
+      products: dimensionMetrics('product', transactions, claims, rollingStart, currentEnd),
+      monthlyProducts: dimensionMetrics('product', transactions, claims, currentStart, currentEnd),
       lossCodeDashboard: buildLossCodeDashboard(
         claims,
         currentStart,
