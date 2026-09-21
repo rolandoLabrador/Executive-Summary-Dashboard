@@ -236,8 +236,9 @@ function finalize(metrics: MetricValues): MetricValues {
   result.underwritingProfit = result.premium - result.claimsPaid;
   result.grossIncome = result.premium - result.claimsPaid;
   result.paidLossRatio = result.premium > 0 ? result.claimsPaid / result.premium : null;
+  const earnedDenominator = result.earnedReserve + result.netAdmin;
   result.earnedLossRatio =
-    result.earnedReserve > 0 ? result.claimsPaid / result.earnedReserve : null;
+    earnedDenominator > 0 ? result.claimsPaid / earnedDenominator : null;
   result.cancellationRate =
     result.contractsWritten > 0 ? result.contractsCancelled / result.contractsWritten : null;
   result.adminPerContract =

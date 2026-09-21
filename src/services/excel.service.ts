@@ -130,12 +130,19 @@ function dataBarRule(priority: number): ExcelJS.ConditionalFormattingRule {
 }
 
 const KPI_DEFINITIONS: MetricDefinition[] = [
+  { label: 'Contracts Written', key: 'contractsWritten', format: INTEGER },
   { label: 'Active Contracts', key: 'activeContracts', format: INTEGER },
+  { label: 'Cancellations Processed', key: 'contractsCancelled', format: INTEGER },
+  { label: 'Gross Income', key: 'grossIncome', format: MONEY },
   { label: 'Net Admin', key: 'netAdmin', format: MONEY },
+  { label: 'Avg Admin / Contract', key: 'adminPerContract', format: MONEY },
   { label: 'Net Reserve', key: 'netReserve', format: MONEY },
+  { label: 'Premium', key: 'premium', format: MONEY },
   { label: 'Earned Reserve', key: 'earnedReserve', format: MONEY },
   { label: 'Claims Paid', key: 'claimsPaid', format: MONEY },
+  { label: 'Underwriting Profit', key: 'underwritingProfit', format: MONEY },
   { label: 'Paid Loss Ratio', key: 'paidLossRatio', format: PERCENT },
+  { label: 'Earned Loss Ratio', key: 'earnedLossRatio', format: PERCENT },
   { label: 'Cancellation Rate', key: 'cancellationRate', format: PERCENT },
 ];
 
@@ -211,17 +218,25 @@ function writeComparison(
     const current = value(comparison.current, definition.key);
     const prior = value(comparison.prior, definition.key);
     const changePercent = variance(current, prior);
-    row.values = [
-      definition.label,
-      current,
-      prior,
-      current - prior,
-      changePercent,
-    ];
+    row.values = [definition.label, current, prior, current - prior, changePercent];
     [2, 3, 4].forEach((column) => {
       row.getCell(column).numFmt = definition.format;
     });
-    row.getCell(5).numFmt = PERCENT;
+    const cell = row.getCell(5);
+    cell.numFmt = PERCENT;
+    if (changePercent !== null && changePercent !== 0) {
+      const isBadIncrease = [
+        'paidLossRatio',
+        'earnedLossRatio',
+        'cancellationRate',
+        'claimsPaid',
+      ].includes(definition.key);
+      const isPositive = changePercent > 0;
+      const isGreen = isBadIncrease ? !isPositive : isPositive;
+      cell.font = {
+        color: { argb: isGreen ? '009900' : 'FF0000' },
+      };
+    }
   });
   return startRow + KPI_DEFINITIONS.length + 3;
 }
@@ -248,13 +263,15 @@ function writePeriodSnapshot(
   return startRow + KPI_DEFINITIONS.length + 3;
 }
 
-function buildTwoTierDimensionSheet(
+function buildThreeTierDimensionSheet(
   workbook: ExcelJS.Workbook,
   name: string,
   heading: string,
+  itdRows: DimensionMetric[],
   rollingRows: DimensionMetric[],
   monthlyRows: DimensionMetric[],
   config: ReportConfig,
+  itdStart: Date,
   rollingStart: Date,
   currentStart: Date,
   currentEnd: Date,
@@ -263,11 +280,12 @@ function buildTwoTierDimensionSheet(
   const ws = workbook.addWorksheet(name);
   configureWorksheet(ws);
   const isDealer = name === 'Dealer Dashboard';
-  const maxCols = isDealer ? 15 : 13;
+  const isAgent = name === 'Agent Dashboard';
+  const maxCols = isDealer || isAgent ? 20 : 18;
   title(
     ws,
     heading,
-    `Rolling 12-Month & Latest Month Results | Through ${formatDate(currentEnd)}`,
+    `Inception to Date, Rolling 12-Month & Latest Month Results | Through ${formatDate(currentEnd)}`,
     maxCols,
   );
 
@@ -285,16 +303,21 @@ function buildTwoTierDimensionSheet(
     const headers = [
       'Rank',
       isDealer ? 'Dealer Number' : name.replace(' Dashboard', ''),
-      ...(isDealer ? ['Dealer Name', 'Agents'] : []),
+      ...(isDealer ? ['Dealer Name', 'Agents'] : isAgent ? ['Agent Name', 'Dealers'] : []),
       'Written',
       'Active Contracts',
+      'Gross Income',
       'Cancellations Processed',
       'Net Admin',
+      'Avg Admin / Contract',
       'Net Reserve',
+      'Premium',
       'Earned Reserve',
       'Claims Paid',
+      'Underwriting Profit',
       'Claim Count',
       'Paid Loss Ratio',
+      'Earned Loss Ratio',
       'Cancellation Rate',
       'Loss Ratio Bar',
     ];
@@ -308,27 +331,34 @@ function buildTwoTierDimensionSheet(
         item.name,
         ...(isDealer
           ? [item.displayName || 'Name unavailable', item.relatedAgents?.join(', ') || 'Unassigned']
-          : []),
+          : isAgent
+            ? [item.name, item.relatedDealers?.join(', ') || 'Unassigned']
+            : []),
         item.contractsWritten,
         item.activeContracts,
+        item.grossIncome,
         item.contractsCancelled,
         item.netAdmin,
+        item.adminPerContract,
         item.netReserve,
+        item.premium,
         item.earnedReserve,
         item.claimsPaid,
+        item.underwritingProfit,
         item.claimCount,
         item.paidLossRatio,
+        item.earnedLossRatio,
         item.cancellationRate,
         item.paidLossRatio,
       ];
-      const offset = isDealer ? 2 : 0;
-      [3, 4, 5, 10].forEach((column) => {
+      const offset = isDealer || isAgent ? 2 : 0;
+      [3, 4, 6, 14].forEach((column) => {
         row.getCell(column + offset).numFmt = INTEGER;
       });
-      [6, 7, 8, 9].forEach((column) => {
+      [5, 7, 8, 9, 10, 11, 12, 13].forEach((column) => {
         row.getCell(column + offset).numFmt = MONEY;
       });
-      [11, 12, 13].forEach((column) => {
+      [15, 16, 17, 18].forEach((column) => {
         row.getCell(column + offset).numFmt = PERCENT;
       });
     });
@@ -336,48 +366,58 @@ function buildTwoTierDimensionSheet(
     if (selected.length > 0) {
       const firstDataRow = startRow + 2;
       const lastDataRow = startRow + 1 + selected.length;
-      const barCol = isDealer ? 'O' : 'M';
-      const ratioCol = isDealer ? 'M' : 'K';
+      const barCol = isDealer || isAgent ? 'T' : 'R';
+      const paidRatioCol = isDealer || isAgent ? 'Q' : 'O';
+      const earnedRatioCol = isDealer || isAgent ? 'R' : 'P';
+
       ws.addConditionalFormatting({
         ref: `${barCol}${firstDataRow}:${barCol}${lastDataRow}`,
         rules: [dataBarRule(1)],
       });
+
+      const ratioRules: ExcelJS.ConditionalFormattingRule[] = [
+        {
+          type: 'cellIs',
+          priority: 2,
+          operator: 'greaterThan',
+          formulae: [config.highLossRatio],
+          style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F4CCCC' } } },
+        },
+        {
+          type: 'cellIs',
+          priority: 3,
+          operator: 'between',
+          formulae: [config.warningLossRatio, config.highLossRatio],
+          style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2CC' } } },
+        },
+      ];
+
       ws.addConditionalFormatting({
-        ref: `${ratioCol}${firstDataRow}:${ratioCol}${lastDataRow}`,
-        rules: [
-          {
-            type: 'cellIs',
-            priority: 2,
-            operator: 'greaterThan',
-            formulae: [config.highLossRatio],
-            style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F4CCCC' } } },
-          },
-          {
-            type: 'cellIs',
-            priority: 3,
-            operator: 'between',
-            formulae: [config.warningLossRatio, config.highLossRatio],
-            style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2CC' } } },
-          },
-        ],
+        ref: `${paidRatioCol}${firstDataRow}:${paidRatioCol}${lastDataRow}`,
+        rules: ratioRules,
+      });
+      ws.addConditionalFormatting({
+        ref: `${earnedRatioCol}${firstDataRow}:${earnedRatioCol}${lastDataRow}`,
+        rules: ratioRules,
       });
     }
 
     return startRow + selected.length + 4;
   };
 
-  const monthName = currentStart.toLocaleString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  });
-  const nextRow = writeTable(
+  let nextRow = writeTable(
     4,
+    `INCEPTION TO DATE RESULTS (${formatDateRange(itdStart, currentEnd)})`,
+    itdRows,
+  );
+  nextRow = writeTable(
+    nextRow,
     `ROLLING 12-MONTH RESULTS (${formatDateRange(rollingStart, currentEnd)})`,
     rollingRows,
   );
   writeTable(
     nextRow,
-    `LATEST COMPLETED MONTH — ${monthName.toUpperCase()} (${formatDateRange(currentStart, currentEnd)})`,
+    `YEAR TO DATE RESULTS (${formatDateRange(currentStart, currentEnd)})`,
     monthlyRows,
   );
 
@@ -385,17 +425,21 @@ function buildTwoTierDimensionSheet(
     { width: 8 },
     { width: isDealer ? 16 : 30 },
     ...(isDealer ? [{ width: 34 }, { width: 36 }] : []),
-    { width: 12 },
-    { width: 12 },
-    { width: 14 },
-    { width: 16 },
-    { width: 16 },
-    { width: 16 },
-    { width: 16 },
-    { width: 12 },
-    { width: 16 },
-    { width: 17 },
-    { width: 28 },
+    { width: 12 }, // Written
+    { width: 12 }, // Active Contracts
+    { width: 16 }, // Gross Income
+    { width: 14 }, // Cancellations Processed
+    { width: 16 }, // Net Admin
+    { width: 16 }, // Net Reserve
+    { width: 16 }, // Premium
+    { width: 16 }, // Earned Reserve
+    { width: 16 }, // Claims Paid
+    { width: 16 }, // Underwriting Profit
+    { width: 12 }, // Claim Count
+    { width: 16 }, // Paid Loss Ratio
+    { width: 16 }, // Earned Loss Ratio
+    { width: 17 }, // Cancellation Rate
+    { width: 28 }, // Loss Ratio Bar
   ];
 }
 
@@ -411,39 +455,45 @@ export class ExcelService {
     workbook.calcProperties.fullCalcOnLoad = true;
 
     this.buildExecutive(workbook, model);
-    buildTwoTierDimensionSheet(
+    buildThreeTierDimensionSheet(
       workbook,
       'Dealer Dashboard',
       'DEALER PERFORMANCE DASHBOARD',
+      model.itdDealers,
       model.dealers,
-      model.monthlyDealers,
+      model.ytdDealers,
       this.config,
+      new Date(2010, 0, 1),
       model.rolling12.currentStart,
-      model.currentMonth.currentStart,
-      model.currentMonth.currentEnd,
+      model.yearToDate.currentStart,
+      model.yearToDate.currentEnd,
       this.config.topDealerCount,
     );
-    buildTwoTierDimensionSheet(
+    buildThreeTierDimensionSheet(
       workbook,
       'Agent Dashboard',
       'AGENT PERFORMANCE DASHBOARD',
+      model.itdAgents,
       model.agents,
-      model.monthlyAgents,
+      model.ytdAgents,
       this.config,
+      new Date(2010, 0, 1),
       model.rolling12.currentStart,
-      model.currentMonth.currentStart,
-      model.currentMonth.currentEnd,
+      model.yearToDate.currentStart,
+      model.yearToDate.currentEnd,
     );
-    buildTwoTierDimensionSheet(
+    buildThreeTierDimensionSheet(
       workbook,
       'Product Dashboard',
       'PRODUCT PERFORMANCE DASHBOARD',
+      model.itdProducts,
       model.products,
-      model.monthlyProducts,
+      model.ytdProducts,
       this.config,
+      new Date(2010, 0, 1),
       model.rolling12.currentStart,
-      model.currentMonth.currentStart,
-      model.currentMonth.currentEnd,
+      model.yearToDate.currentStart,
+      model.yearToDate.currentEnd,
     );
     this.buildLossCodeDashboard(workbook, model);
     this.buildMonthly(workbook, model);
@@ -490,6 +540,7 @@ export class ExcelService {
       model.priorCalendarYear,
     );
     this.writeExecutiveTrend(ws, model);
+    this.writeWorstDealers(ws, model);
     ws.columns = [
       { width: 24 },
       { width: 18 },
@@ -532,12 +583,7 @@ export class ExcelService {
         type: 'pattern',
         pattern: 'solid',
         fgColor: {
-          argb:
-            index === 0
-              ? COLORS.green
-              : index === 1
-                ? COLORS.amber
-                : COLORS.blue,
+          argb: index === 0 ? COLORS.green : index === 1 ? COLORS.amber : COLORS.blue,
         },
       };
       header.alignment = { horizontal: 'center' };
@@ -548,6 +594,7 @@ export class ExcelService {
       { row: 9, label: 'Earned Reserve', key: 'earnedReserve', format: MONEY },
       { row: 11, label: 'Claims Paid', key: 'claimsPaid', format: MONEY },
       { row: 13, label: 'Paid Loss Ratio', key: 'paidLossRatio', format: PERCENT },
+      { row: 15, label: 'Earned Loss Ratio', key: 'earnedLossRatio', format: PERCENT },
     ];
     trends.forEach(({ row, label, key, format }, trendIndex) => {
       ws.mergeCells(row - 1, firstColumn, row - 1, Math.max(firstColumn, lastColumn));
@@ -568,12 +615,80 @@ export class ExcelService {
       }
     });
 
-    ws.mergeCells(15, firstColumn, 15, Math.max(firstColumn, lastColumn));
-    const note = ws.getCell(15, firstColumn);
+    ws.mergeCells(17, firstColumn, 17, Math.max(firstColumn, lastColumn));
+    const note = ws.getCell(17, firstColumn);
     note.value =
       'Green = latest completed month  |  Amber = preceding month  |  Bars show relative monthly magnitude';
     note.font = { italic: true, color: { argb: COLORS.darkGray } };
     note.alignment = { horizontal: 'center' };
+  }
+
+  private writeWorstDealers(ws: ExcelJS.Worksheet, model: ReportModel): void {
+    const startRow = 20;
+    const firstColumn = 8;
+    const dealers = [...model.dealers].filter((d) => d.earnedReserve > 0 && d.claimsPaid > 0);
+    dealers.sort((a, b) => (b.earnedLossRatio || 0) - (a.earnedLossRatio || 0));
+    const worst = dealers.slice(0, 20);
+
+    ws.mergeCells(startRow, firstColumn, startRow, firstColumn + 11);
+    const heading = ws.getCell(startRow, firstColumn);
+    heading.value = 'TOP 20 WORST PERFORMING DEALERS BY EARNED LOSS RATIO (ROLLING 12)';
+    heading.font = { bold: true, size: 12, color: { argb: COLORS.navy } };
+
+    const headerRow = ws.getRow(startRow + 1);
+    
+    headerRow.getCell(8).value = 'Rank';
+    
+    ws.mergeCells(startRow + 1, 9, startRow + 1, 13);
+    headerRow.getCell(9).value = 'Dealer';
+    
+    ws.mergeCells(startRow + 1, 14, startRow + 1, 15);
+    headerRow.getCell(14).value = 'Active Contracts';
+    
+    ws.mergeCells(startRow + 1, 16, startRow + 1, 17);
+    headerRow.getCell(16).value = 'Premium';
+    
+    ws.mergeCells(startRow + 1, 18, startRow + 1, 19);
+    headerRow.getCell(18).value = 'Earned Loss Ratio';
+
+    [8, 9, 14, 16, 18].forEach(col => {
+       const cell = headerRow.getCell(col);
+       cell.font = { bold: true, color: { argb: COLORS.white } };
+       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
+       cell.alignment = { horizontal: 'center' };
+    });
+
+    worst.forEach((dealer, index) => {
+      const row = ws.getRow(startRow + 2 + index);
+      
+      row.getCell(8).value = index + 1;
+      row.getCell(8).alignment = { horizontal: 'center' };
+      
+      ws.mergeCells(startRow + 2 + index, 9, startRow + 2 + index, 13);
+      row.getCell(9).value = dealer.displayName || dealer.name;
+      
+      ws.mergeCells(startRow + 2 + index, 14, startRow + 2 + index, 15);
+      row.getCell(14).value = dealer.activeContracts;
+      row.getCell(14).numFmt = INTEGER;
+      row.getCell(14).alignment = { horizontal: 'center' };
+      
+      ws.mergeCells(startRow + 2 + index, 16, startRow + 2 + index, 17);
+      row.getCell(16).value = dealer.premium;
+      row.getCell(16).numFmt = MONEY;
+      row.getCell(16).alignment = { horizontal: 'center' };
+      
+      ws.mergeCells(startRow + 2 + index, 18, startRow + 2 + index, 19);
+      row.getCell(18).value = dealer.earnedLossRatio;
+      row.getCell(18).numFmt = PERCENT;
+      row.getCell(18).alignment = { horizontal: 'center' };
+    });
+
+    if (worst.length > 0) {
+      ws.addConditionalFormatting({
+        ref: `R${startRow + 2}:S${startRow + 1 + worst.length}`,
+        rules: [dataBarRule(20)],
+      });
+    }
   }
 
   private buildLossCodeDashboard(workbook: ExcelJS.Workbook, model: ReportModel): void {
@@ -896,6 +1011,38 @@ export class ExcelService {
       'SANITIZED CONTRACT ACTIVITY',
       'No customer names, contact details, addresses, or VINs',
     );
+    const uniqueComponents = new Set<string>();
+    model.contractTransactions.forEach((item) => {
+      if (item.components) {
+        Object.entries(item.components).forEach(([cat, comps]) => {
+          if (cat.toUpperCase().includes('COMMISSION') || cat.toUpperCase().includes('COMM')) return;
+          Object.keys(comps).forEach((c) => uniqueComponents.add(`${cat} - ${c}`));
+        });
+      }
+    });
+    const componentColumns = Array.from(uniqueComponents).sort();
+
+    const baseColumns = [
+      { width: 26 },
+      { width: 14, numFmt: 'mm/dd/yyyy' },
+      { width: 14, numFmt: 'mm/dd/yyyy' },
+      { width: 18 },
+      { width: 14 },
+      { width: 24 },
+      { width: 14 },
+      { width: 30 },
+      { width: 25 },
+      { width: 16 },
+      { width: 12 },
+      { width: 18 },
+      { width: 14, numFmt: MONEY },
+      { width: 14, numFmt: MONEY },
+      { width: 14, numFmt: MONEY }, // Premium
+      { width: 16, numFmt: MONEY },
+    ];
+    const dynColumns = componentColumns.map(() => ({ width: 18, numFmt: MONEY }));
+    ws.columns = [...baseColumns, ...dynColumns];
+
     ws.getRow(4).values = [
       'Source ID',
       'Snapshot Date',
@@ -911,11 +1058,20 @@ export class ExcelService {
       'Risk Entity',
       'Admin',
       'Reserve',
+      'Premium',
+      'Earned Reserve',
+      ...componentColumns,
     ];
     styleHeader(ws.getRow(4));
+    // SAMPLE SIZE REDUCTION
+    // Writes 1 out of every 33 contracts (~3% chronological sample spread across all years).
+    // This dramatically solves the Excel generation bottleneck while providing a huge representative dataset.
+    let sampledCount = 0;
     model.contractTransactions.forEach((item, index) => {
-      const row = ws.getRow(index + 5);
-      row.values = [
+      if (index % 33 !== 0) return;
+      sampledCount++;
+
+      const rowValues: ExcelJS.CellValue[] = [
         item.sourceId,
         item.snapshotDate,
         item.activityDate,
@@ -930,29 +1086,27 @@ export class ExcelService {
         item.riskEntity,
         item.adminAmount,
         item.reserveAmount,
+        item.adminAmount + item.reserveAmount, // Premium
+        item.earnedReserveAmount,
       ];
-      row.getCell(2).numFmt = 'mm/dd/yyyy';
-      row.getCell(3).numFmt = 'mm/dd/yyyy';
-      row.getCell(13).numFmt = MONEY;
-      row.getCell(14).numFmt = MONEY;
+      componentColumns.forEach((col) => {
+        const parts = col.split(' - ');
+        const cat = parts[0];
+        const comp = parts.slice(1).join(' - ');
+        if (cat && comp) {
+          rowValues.push(item.components?.[cat]?.[comp] ?? 0);
+        } else {
+          rowValues.push(0);
+        }
+      });
+      ws.addRow(rowValues);
     });
-    ws.autoFilter = { from: 'A4', to: `N${Math.max(5, model.contractTransactions.length + 4)}` };
-    ws.columns = [
-      { width: 26 },
-      { width: 14 },
-      { width: 14 },
-      { width: 18 },
-      { width: 14 },
-      { width: 24 },
-      { width: 14 },
-      { width: 30 },
-      { width: 25 },
-      { width: 16 },
-      { width: 12 },
-      { width: 18 },
-      { width: 14 },
-      { width: 14 },
-    ];
+
+    const endColLetter = ws.getColumn(15 + componentColumns.length).letter;
+    ws.autoFilter = {
+      from: 'A4',
+      to: `${endColLetter}${Math.max(5, sampledCount + 4)}`,
+    };
   }
 
   private buildClaimDetail(workbook: ExcelJS.Workbook, model: ReportModel): void {
@@ -963,6 +1117,21 @@ export class ExcelService {
       'SANITIZED PAID CLAIM ACTIVITY',
       'Paid claims only; no customer or vehicle identifiers',
     );
+    ws.columns = [
+      { width: 26 },
+      { width: 14, numFmt: 'mm/dd/yyyy' },
+      { width: 14, numFmt: 'mm/dd/yyyy' },
+      { width: 18 },
+      { width: 18 },
+      { width: 12 },
+      { width: 14, numFmt: MONEY },
+      { width: 24 },
+      { width: 30 },
+      { width: 25 },
+      { width: 12 },
+      { width: 40 },
+      { width: 26 },
+    ];
     ws.getRow(4).values = [
       'Source ID',
       'Snapshot Date',
@@ -979,9 +1148,8 @@ export class ExcelService {
       'Payment Key',
     ];
     styleHeader(ws.getRow(4));
-    model.claims.forEach((item, index) => {
-      const row = ws.getRow(index + 5);
-      row.values = [
+    model.claims.forEach((item) => {
+      ws.addRow([
         item.sourceId,
         item.snapshotDate,
         item.activityDate,
@@ -995,27 +1163,9 @@ export class ExcelService {
         item.lossCode,
         item.lossCodeDescription,
         item.paymentKey,
-      ];
-      row.getCell(2).numFmt = 'mm/dd/yyyy';
-      row.getCell(3).numFmt = 'mm/dd/yyyy';
-      row.getCell(7).numFmt = MONEY;
+      ]);
     });
     ws.autoFilter = { from: 'A4', to: `M${Math.max(5, model.claims.length + 4)}` };
-    ws.columns = [
-      { width: 26 },
-      { width: 14 },
-      { width: 14 },
-      { width: 18 },
-      { width: 18 },
-      { width: 14 },
-      { width: 16 },
-      { width: 24 },
-      { width: 30 },
-      { width: 28 },
-      { width: 16 },
-      { width: 38 },
-      { width: 65 },
-    ];
   }
 
   private buildDataQuality(workbook: ExcelJS.Workbook, model: ReportModel): void {
@@ -1171,7 +1321,11 @@ export class ExcelService {
     ws.getRow(4).values = ['Metric / Rule', 'Definition'];
     styleHeader(ws.getRow(4));
     const definitions = [
-      ['Paid Loss Ratio', 'Claims paid divided by net written reserve.'],
+      ['Gross Income', 'Add Net admin Net reserve tax ceeding full amount'],
+      ['Premium', 'Calculated as Net Admin + Net Written Reserve.'],
+      ['Underwriting Profit', 'Calculated as Premium - Claims Paid.'],
+      ['Paid Loss Ratio', 'Claims paid divided by Premium.'],
+      ['Earned Loss Ratio', 'Claims paid divided by (Earned Reserve + Net Admin).'],
       [
         'Active Contracts',
         'Distinct contracts whose latest snapshot has ContractStatus A and whose metadata.ActivationDate falls within the reporting period.',
@@ -1210,12 +1364,16 @@ export class ExcelService {
         'January 1 through December 31 of the calendar year immediately before the report as-of year.',
       ],
       [
+        'Inception to Date (ITD)',
+        'All recognized activity from the very first recorded date (inception) up to the latest completed month. ITD Loss Ratio is the total claims paid since inception divided by the ITD Premium.',
+      ],
+      [
         'Dealer Ranking',
         `Top ${this.config.topDealerCount} dealers ranked by rolling-12 net written reserve.`,
       ],
       [
         'Excluded Components',
-        'The entire commission section plus component names containing DEALER, DLR, COMMISSION, COMM, F&I, or PACK, and configured exact exclusions.',
+        'Broadly excludes commission section plus components containing DEALER, DLR, COMMISSION, COMM, F&I, or PACK. Additionally, when calculating Reserve, specifically excludes CLIPFEE, PREMIUMTAX, CEDINGFEE, and ADMIN. When calculating Admin, specifically excludes ROADSIDEADMIN and LOANPMT.',
       ],
       ['Claims', 'Paid claim/payment records with a non-zero Total Paid Amount.'],
       [
