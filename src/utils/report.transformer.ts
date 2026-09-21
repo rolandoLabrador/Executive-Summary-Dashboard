@@ -143,10 +143,6 @@ function excludedComponent(
   ) {
     return true;
   }
-  
-  if (upper === 'CLIPFEE') {
-    console.log("EXCLUDING CLIPFEE NOW!");
-  }
 
   // Explicit exclusions for RESERVE calculation
   if (category === 'RESERVE') {
