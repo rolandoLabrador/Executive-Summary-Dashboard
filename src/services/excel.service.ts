@@ -639,19 +639,22 @@ export class ExcelService {
     
     headerRow.getCell(8).value = 'Rank';
     
-    ws.mergeCells(startRow + 1, 9, startRow + 1, 13);
+    ws.mergeCells(startRow + 1, 9, startRow + 1, 11);
     headerRow.getCell(9).value = 'Dealer';
     
-    ws.mergeCells(startRow + 1, 14, startRow + 1, 15);
-    headerRow.getCell(14).value = 'Active Contracts';
+    ws.mergeCells(startRow + 1, 12, startRow + 1, 13);
+    headerRow.getCell(12).value = 'Active Contracts';
     
+    ws.mergeCells(startRow + 1, 14, startRow + 1, 15);
+    headerRow.getCell(14).value = 'Premium';
+
     ws.mergeCells(startRow + 1, 16, startRow + 1, 17);
-    headerRow.getCell(16).value = 'Premium';
+    headerRow.getCell(16).value = 'Paid Loss Ratio';
     
     ws.mergeCells(startRow + 1, 18, startRow + 1, 19);
     headerRow.getCell(18).value = 'Earned Loss Ratio';
 
-    [8, 9, 14, 16, 18].forEach(col => {
+    [8, 9, 12, 14, 16, 18].forEach(col => {
        const cell = headerRow.getCell(col);
        cell.font = { bold: true, color: { argb: COLORS.white } };
        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
@@ -664,17 +667,22 @@ export class ExcelService {
       row.getCell(8).value = index + 1;
       row.getCell(8).alignment = { horizontal: 'center' };
       
-      ws.mergeCells(startRow + 2 + index, 9, startRow + 2 + index, 13);
+      ws.mergeCells(startRow + 2 + index, 9, startRow + 2 + index, 11);
       row.getCell(9).value = dealer.displayName || dealer.name;
       
-      ws.mergeCells(startRow + 2 + index, 14, startRow + 2 + index, 15);
-      row.getCell(14).value = dealer.activeContracts;
-      row.getCell(14).numFmt = INTEGER;
-      row.getCell(14).alignment = { horizontal: 'center' };
+      ws.mergeCells(startRow + 2 + index, 12, startRow + 2 + index, 13);
+      row.getCell(12).value = dealer.activeContracts;
+      row.getCell(12).numFmt = INTEGER;
+      row.getCell(12).alignment = { horizontal: 'center' };
       
+      ws.mergeCells(startRow + 2 + index, 14, startRow + 2 + index, 15);
+      row.getCell(14).value = dealer.premium;
+      row.getCell(14).numFmt = MONEY;
+      row.getCell(14).alignment = { horizontal: 'center' };
+
       ws.mergeCells(startRow + 2 + index, 16, startRow + 2 + index, 17);
-      row.getCell(16).value = dealer.premium;
-      row.getCell(16).numFmt = MONEY;
+      row.getCell(16).value = dealer.paidLossRatio;
+      row.getCell(16).numFmt = PERCENT;
       row.getCell(16).alignment = { horizontal: 'center' };
       
       ws.mergeCells(startRow + 2 + index, 18, startRow + 2 + index, 19);
@@ -686,6 +694,10 @@ export class ExcelService {
     if (worst.length > 0) {
       ws.addConditionalFormatting({
         ref: `R${startRow + 2}:S${startRow + 1 + worst.length}`,
+        rules: [dataBarRule(20)],
+      });
+      ws.addConditionalFormatting({
+        ref: `P${startRow + 2}:Q${startRow + 1 + worst.length}`,
         rules: [dataBarRule(20)],
       });
     }
