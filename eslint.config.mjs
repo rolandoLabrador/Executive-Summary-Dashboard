@@ -5,7 +5,15 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'output/**', 'coverage/**'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'output/**',
+      'coverage/**',
+      '**/*.js',
+      'sum_db.ts',
+      'debug-memory.ts',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

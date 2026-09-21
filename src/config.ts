@@ -63,8 +63,8 @@ export function loadReportConfig(args: string[]): ReportConfig {
     asOfDate: parseAsOfDate(args),
     outputDirectory: path.resolve(process.env.REPORT_OUTPUT_DIR?.trim() || 'output'),
     topDealerCount: positiveInteger('TOP_DEALER_COUNT', 20),
-    warningLossRatio: ratio('LOSS_RATIO_WARNING', 0.65),
-    highLossRatio: ratio('LOSS_RATIO_HIGH', 0.8),
+    warningLossRatio: ratio('LOSS_RATIO_WARNING', 0.75),
+    highLossRatio: ratio('LOSS_RATIO_HIGH', 0.9),
     excludedComponentCodes: new Set(excluded),
   };
 }

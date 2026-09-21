@@ -23,22 +23,24 @@ function logMemory(checkpoint: string): void {
   const heapUsedMB = Math.round(mem.heapUsed / 1024 / 1024);
   const heapTotalMB = Math.round(mem.heapTotal / 1024 / 1024);
   const rssMB = Math.round(mem.rss / 1024 / 1024);
-  console.log(`⏱️ [Memory Checkpoint] ${checkpoint} -> Heap: ${heapUsedMB} MB / ${heapTotalMB} MB (RSS: ${rssMB} MB)`);
+  console.log(
+    `⏱️ [Memory Checkpoint] ${checkpoint} -> Heap: ${heapUsedMB} MB / ${heapTotalMB} MB (RSS: ${rssMB} MB)`,
+  );
 }
 
 async function extractAndTransformModel(
   repository: DataRepository,
   reportConfig: ReturnType<typeof loadReportConfig>,
 ): Promise<ReportModel> {
-  const [contracts, cancellations, claims, pipelineAudits] = await Promise.all([
-    repository.getContracts(),
-    repository.getCancellations(),
-    repository.getClaims(),
-    repository.getLatestReconciliationAudits(),
-  ]);
-  console.log(
-    `Extracted ${contracts.length} contract, ${cancellations.length} cancellation, and ${claims.length} claim documents.`,
-  );
+  console.log(`Extracting Full Inception-to-Date streams from MongoDB...`);
+
+  // Create open streams instead of pulling arrays into memory.
+  const contractsStream = repository.getContracts();
+  const cancellationsStream = repository.getCancellations();
+  const claimsStream = repository.getClaims();
+
+  const pipelineAudits = await repository.getLatestReconciliationAudits();
+
   if (pipelineAudits.length > 0) {
     console.log(
       `Pipeline Audits: ${pipelineAudits
@@ -49,12 +51,13 @@ async function extractAndTransformModel(
         .join(' | ')}`,
     );
   }
-  logMemory('2. After MongoDB Extraction (Raw Documents in RAM)');
+  logMemory('2. After MongoDB connection initialization');
 
-  const model = new ReportTransformer(reportConfig).transform(
-    contracts,
-    cancellations,
-    claims,
+  // Transformer now consumes the streams one-by-one asynchronously
+  const model = await new ReportTransformer(reportConfig).transform(
+    contractsStream,
+    cancellationsStream,
+    claimsStream,
     pipelineAudits,
   );
 
@@ -70,7 +73,7 @@ async function main(): Promise<void> {
   try {
     await mongo.connect();
     const repository = new DataRepository(mongo, loadMongoSourceConfig());
-    
+
     // Raw documents are isolated inside extractAndTransformModel and freed when it finishes
     const model = await extractAndTransformModel(repository, reportConfig);
     if (global.gc) {

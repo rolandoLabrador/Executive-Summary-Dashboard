@@ -39,6 +39,14 @@ npm.cmd run report -- --as-of 2026-07-31
 
 The workbook is written to `output` unless `REPORT_OUTPUT_DIR` is changed.
 
+## Memory Requirements (OOM Issues)
+
+Because this report loads large historical datasets and builds massive uncompressed Excel arrays in memory before saving to disk, it requires significantly more RAM than standard Node.js limits (default ~1.4GB).
+
+The `npm run report` and `npm start` scripts have been explicitly configured with `--max-old-space-size=8192` to allow the V8 engine to use up to 8GB of RAM. If you encounter an `Out of Memory` or `Heap out of memory` crash, ensure that the host machine executing this script has at least 8GB of free memory available.
+
+If executing via CI/CD (like GitHub Actions standard Linux runners which have 7GB RAM), you may experience OS-level OOM kills. We recommend generating the report locally or on a dedicated reporting server.
+
 ## Optional SendGrid email delivery
 
 The report is saved locally before email delivery is attempted. Configure these
@@ -55,58 +63,31 @@ EMAIL_CC=
 `EMAIL_FROM` must be a sender identity verified in SendGrid. Leave
 `EMAIL_ENABLED=false` while testing locally or if email delivery is not required.
 
-## Metric rules
+## Metric rules (Definitions)
 
-- Cancellations are recognized exclusively from `metadata.CancelBillDate`. A blank
-  or invalid Cancel Bill Date is excluded from cancellation KPIs and reported on
-  the Data Quality worksheet; no fallback cancellation date is used.
-- Written contracts are recognized exclusively from `metadata.ActivationDate`. A
-  blank or invalid Activation Date is excluded from written-contract KPIs and
-  reported on the Data Quality worksheet; no fallback contract date is used.
-- If an original new-business source is missing, its cancellation record supplies
-  an auditable `:written-reference` using the original `WrittenAmount` and
-  `ActivationDate`. Its status remains canceled, so it never becomes active.
-- Paid loss ratio is paid claims divided by net written reserve.
-- Net written reserve is included written reserve less included cancelled reserve.
-- All executive KPIs are anchored to the latest fully completed month (the month before the report run date).
-- The same completed-month cutoff applies to every workbook tab; open-month activity is excluded from detail and summary data.
-- Current month compares that completed month with the same calendar month in the prior year.
-- YTD runs from January 1 through the completed report month and compares the equivalent prior-year period.
-- Rolling 12 months ends with the completed report month and compares with the preceding 12 months.
-- The Product Dashboard shows only the latest completed month and includes a visible reporting-month column.
-- Product Dashboard rows are grouped strictly by `metadata.ProductType`; coverage names and coverage codes are not used as product groups.
-- The Agent Dashboard excludes the agent name `test` (case-insensitive); executive totals remain unchanged.
-- Dealer rankings use rolling-12 net written reserve.
-- Active Contracts is a current-state cohort metric: distinct `Contract#` values
-  whose latest snapshot has `ContractStatus=A` and whose `ActivationDate` is in the
-  selected period. It is not calculated as written minus cancellations processed.
-- For the same activation cohort and as-of cutoff, Written Contracts equals Active
-  Contracts plus contracts from that cohort whose latest state is canceled. This
-  does not generally equal Active Contracts plus Cancellations Processed because
-  Cancellations Processed is grouped by `CancelBillDate`, not `ActivationDate`.
-- Cancellations Processed is separate activity based only on `CancelBillDate`.
-- Claims use their own dealer number, agent number, and coverage code first. Contract lookup is
-  only a fallback when those dimensions are absent; an unmatched claim is not a
-  data-quality warning.
-- Repeated contract/cancellation snapshots are deduplicated by `Contract#` and
-  transaction type, retaining the latest extraction/ingestion copy.
-- Claim count uses distinct `Claim Number`; paid amounts are deduplicated by a
-  payment/detail signature rather than MongoDB `_id`.
-- The Loss Code Dashboard groups paid amounts by normalized `Loss Code`, displays
-  `Loss Code Description` as the covered component, uses the claim `Coverage Name`
-  as the product in the pie-chart legend, and ranks the rolling-12 detail by paid
-  amount. Blank codes remain visible as `UNMAPPED` so totals reconcile.
-- Its pie chart shows every positive rolling-12 loss code as a separate slice with
-  its exact component description and amount; negative adjustments remain included
-  in KPI totals.
-- Loss codes contributing less than 0.1% of rolling-12 paid amount are omitted from
-  the pie chart and rolling-12 detail but remain included in the KPI totals.
-- Vehicle-make rankings use the claim `Make` field, deduplicated paid transactions,
-  and distinct `Claim Number` counts for the rolling-12 period.
-- Loss-code row counts are distinct by `Claim Number` within each code. A claim with
-  multiple loss codes is counted once in each applicable row and once in the overall KPI.
+- **Premium**: Calculated as Net Admin + Net Written Reserve.
+- **Underwriting Profit**: Calculated as Premium - Claims Paid.
+- **Paid Loss Ratio**: Claims paid divided by Premium.
+- **Earned Reserve**: Calculated per contract based on the effective date and its specific earning schedule curve up to the report date.
+- **Active Contracts**: Distinct contracts whose latest snapshot has ContractStatus A and whose metadata.ActivationDate falls within the reporting period.
+- **Cancellations Processed**: Distinct cancellation contracts whose metadata.CancelBillDate falls within the reporting period. This is activity, not a subtraction from the active cohort.
+- **Net Written Reserve**: Included written reserve components less included cancelled reserve components.
+- **Net Admin**: Included written admin components less included cancelled admin components.
+- **Cancellation Timing**: Cancellation activity is recognized exclusively from metadata.CancelBillDate.
+- **Contract Timing**: Written contract activity is recognized exclusively from metadata.ActivationDate.
+- **Current Month**: Latest fully completed month, compared with the same calendar month in the prior year.
+- **Year to Date**: January 1 through the latest completed month, compared with the same prior-year months.
+- **Rolling 12 Months**: Latest completed month plus the preceding 11 months, compared with the preceding 12-month period.
+- **Prior Full Calendar Year**: January 1 through December 31 of the calendar year immediately before the report as-of year.
+- **Inception to Date (ITD)**: All recognized activity from the very first recorded date (inception) up to the latest completed month. ITD Loss Ratio is the total claims paid since inception divided by the ITD Premium.
+- **Dealer Ranking**: Top dealers ranked by rolling-12 net written reserve.
+- **Excluded Components**: Broadly excludes commission section plus components containing DEALER, DLR, COMMISSION, COMM, F&I, or PACK. Additionally, when calculating Reserve, specifically excludes CLIPFEE, PREMIUMTAX, CEDINGFEE, and ADMIN. When calculating Admin, specifically excludes ROADSIDEADMIN and LOANPMT.
+- **Claims**: Paid claim/payment records with a non-zero Total Paid Amount.
+- **Snapshot Deduplication**: Contract and cancellation snapshots retain the newest record per Contract# and transaction type.
+- **Claim Deduplication**: Claim count uses distinct Claim Number. Paid amounts retain the newest snapshot per payment/detail signature.
+- **Privacy**: Customer identity, contact, address, and VIN fields are excluded at MongoDB extraction.
 
-These rules are also embedded in every generated workbook on the `Definitions` tab.
+These rules are strictly enforced by the data pipeline and are embedded in every generated workbook on the `Definitions` tab.
 
 ## GitHub and Actions troubleshooting
 

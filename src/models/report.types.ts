@@ -51,8 +51,10 @@ export interface NormalizedContractTransaction {
   riskEntity: string;
   adminAmount: number;
   reserveAmount: number;
+  earnedReserveAmount: number;
   effectiveDate: Date | null;
   earningSchedule: Record<number, number> | null;
+  components: Record<string, Record<string, number>>;
 }
 
 export interface NormalizedClaim {
@@ -85,10 +87,14 @@ export interface MetricValues {
   reserveWritten: number;
   reserveCancelled: number;
   netReserve: number;
+  premium: number;
   earnedReserve: number;
   claimsPaid: number;
   claimCount: number;
+  underwritingProfit: number;
+  grossIncome: number;
   paidLossRatio: number | null;
+  earnedLossRatio: number | null;
   cancellationRate: number | null;
   adminPerContract: number | null;
 }
@@ -117,6 +123,7 @@ export interface DimensionMetric extends MetricValues {
   name: string;
   displayName?: string;
   relatedAgents?: string[];
+  relatedDealers?: string[];
 }
 
 export interface LossCodeKpis {
@@ -199,13 +206,20 @@ export interface ReportModel {
   yearToDate: PeriodComparison;
   rolling12: PeriodComparison;
   priorCalendarYear: ReportingPeriod;
+  inceptionToDate: ReportingPeriod;
   monthly: MonthlyMetric[];
   dealers: DimensionMetric[];
+  itdDealers: DimensionMetric[];
   monthlyDealers: DimensionMetric[];
+  ytdDealers: DimensionMetric[];
   agents: DimensionMetric[];
+  itdAgents: DimensionMetric[];
   monthlyAgents: DimensionMetric[];
+  ytdAgents: DimensionMetric[];
   products: DimensionMetric[];
+  itdProducts: DimensionMetric[];
   monthlyProducts: DimensionMetric[];
+  ytdProducts: DimensionMetric[];
   lossCodeDashboard: LossCodeDashboard;
   contractTransactions: NormalizedContractTransaction[];
   claims: NormalizedClaim[];

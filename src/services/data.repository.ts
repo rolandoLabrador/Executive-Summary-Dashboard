@@ -74,24 +74,39 @@ export class DataRepository {
   ) {}
 
   /**
-   * Extracts raw contract data from ContractDataDB
+   * Extracts raw contract data from ContractDataDB as a stream
    */
-  async getContracts(): Promise<UnknownDocument[]> {
-    return this.readCollection(this.sources.contractDb, this.sources.contractCollection);
+  async *getContracts(cutoffDate?: Date): AsyncIterable<UnknownDocument> {
+    yield* this.streamCollection(
+      this.sources.contractDb,
+      this.sources.contractCollection,
+      cutoffDate ? { 'metadata.ActivationDate': { $gte: cutoffDate } } : {},
+    );
   }
 
   /**
-   * Extracts raw claim data from ClaimDataDB
+   * Extracts raw claim data from ClaimDataDB as a stream
    */
-  async getClaims(): Promise<UnknownDocument[]> {
-    return this.readCollection(this.sources.claimDb, this.sources.claimCollection);
+  async *getClaims(): AsyncIterable<UnknownDocument> {
+    yield* this.streamCollection(
+      this.sources.claimDb,
+      this.sources.claimCollection,
+      // Fallback: Since claims might use Date Paid, we pull everything or we could apply a filter if it's an ISODate
+      // For now, stream without filter or we can add it if they standardized that too. We'll stream all to be safe since streaming uses ~0 RAM.
+      {},
+    );
   }
 
   /**
-   * Extracts raw cancellation data from CancelDataDB
+   * Extracts raw cancellation data from CancelDataDB as a stream
    */
-  async getCancellations(): Promise<UnknownDocument[]> {
-    return this.readCollection(this.sources.cancellationDb, this.sources.cancellationCollection);
+  async *getCancellations(): AsyncIterable<UnknownDocument> {
+    yield* this.streamCollection(
+      this.sources.cancellationDb,
+      this.sources.cancellationCollection,
+      // Also streaming all cancellations to be safe, filtering inside transformer if needed
+      {},
+    );
   }
 
   /**
@@ -118,15 +133,19 @@ export class DataRepository {
       const results = await Promise.all(auditPromises);
       return results.filter((item): item is PipelineAuditRecord => item !== null);
     } catch (error) {
-      console.warn(`Could not load reconciliation audits from ${database}.${collectionName}:`, error);
+      console.warn(
+        `Could not load reconciliation audits from ${database}.${collectionName}:`,
+        error,
+      );
       return [];
     }
   }
 
-  private async readCollection(
+  private async *streamCollection(
     database: string,
     collectionName: string,
-  ): Promise<UnknownDocument[]> {
+    filter: Record<string, unknown> = {},
+  ): AsyncIterable<UnknownDocument> {
     const collection = this.mongoService
       .getDb(database)
       .collection<UnknownDocument>(collectionName);
@@ -155,6 +174,10 @@ export class DataRepository {
       'Customer Phone': 0,
       VIN: 0,
     };
-    return collection.find({}, { projection }).toArray();
+
+    const cursor = collection.find(filter, { projection });
+    for await (const doc of cursor) {
+      yield doc;
+    }
   }
 }
