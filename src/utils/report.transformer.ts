@@ -30,10 +30,14 @@ const EMPTY_METRICS: MetricValues = {
   reserveWritten: 0,
   reserveCancelled: 0,
   netReserve: 0,
+  premium: 0,
   earnedReserve: 0,
   claimsPaid: 0,
   claimCount: 0,
+  underwritingProfit: 0,
+  grossIncome: 0,
   paidLossRatio: null,
+  earnedLossRatio: null,
   cancellationRate: null,
   adminPerContract: null,
 };
@@ -120,9 +124,15 @@ function classify(value: unknown, status: unknown): TransactionType {
   return 'Unknown';
 }
 
-function excludedComponent(name: string, config: ReportConfig): boolean {
+function excludedComponent(
+  name: string,
+  category: 'ADMIN' | 'RESERVE',
+  config: ReportConfig,
+): boolean {
   const upper = name.trim().toUpperCase();
-  return (
+
+  // These are broadly excluded from all calculations.
+  if (
     config.excludedComponentCodes.has(upper) ||
     upper.includes('DEALER') ||
     upper.includes('DLR') ||
@@ -130,7 +140,35 @@ function excludedComponent(name: string, config: ReportConfig): boolean {
     upper.includes('COMM') ||
     upper.includes('F&I') ||
     upper.includes('PACK')
-  );
+  ) {
+    return true;
+  }
+  
+  if (upper === 'CLIPFEE') {
+    console.log("EXCLUDING CLIPFEE NOW!");
+  }
+
+  // Explicit exclusions for RESERVE calculation
+  if (category === 'RESERVE') {
+    if (
+      ['CLIPFEE', 'PREMIUMTAX', 'CEDINGFEE', 'ADMIN'].includes(upper) ||
+      upper.includes('PREMIUM TAX') ||
+      upper.includes('CEEDING') ||
+      upper.includes('CEDING') ||
+      upper.includes('CLIP FEE')
+    ) {
+      return true;
+    }
+  }
+
+  // Explicit exclusions for ADMIN calculation
+  if (category === 'ADMIN') {
+    if (['ROADSIDEADMIN', 'LOANPMT'].includes(upper)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function sumComponents(
@@ -140,9 +178,30 @@ function sumComponents(
 ): number {
   const values = record(record(container)[category]);
   return Object.entries(values).reduce(
-    (sum, [name, value]) => sum + (excludedComponent(name, config) ? 0 : number(value)),
+    (sum, [name, value]) => sum + (excludedComponent(name, category, config) ? 0 : number(value)),
     0,
   );
+}
+
+function extractComponents(container: unknown): Record<string, Record<string, number>> {
+  const result: Record<string, Record<string, number>> = {};
+  const root = record(container);
+  for (const [category, values] of Object.entries(root)) {
+    const upperCat = category.toUpperCase();
+    if (upperCat === 'ADMIN' || upperCat === 'RESERVE') {
+      if (typeof values === 'object' && values !== null) {
+        result[category] = {};
+        for (const [name, value] of Object.entries(record(values))) {
+          const upperName = name.trim().toUpperCase();
+          if (upperName.includes('COMMISSION') || upperName.includes('COMM')) {
+            continue;
+          }
+          result[category][name] = number(value);
+        }
+      }
+    }
+  }
+  return result;
 }
 
 function monthStart(value: Date): Date {
@@ -177,7 +236,12 @@ function finalize(metrics: MetricValues): MetricValues {
   result.netContracts = result.contractsWritten - result.contractsCancelled;
   result.netAdmin = result.adminWritten - result.adminCancelled;
   result.netReserve = result.reserveWritten - result.reserveCancelled;
-  result.paidLossRatio = result.earnedReserve > 0 ? result.claimsPaid / result.earnedReserve : null;
+  result.premium = result.netAdmin + result.netReserve;
+  result.underwritingProfit = result.premium - result.claimsPaid;
+  result.grossIncome = result.premium - result.claimsPaid;
+  result.paidLossRatio = result.premium > 0 ? result.claimsPaid / result.premium : null;
+  result.earnedLossRatio =
+    result.earnedReserve > 0 ? result.claimsPaid / result.earnedReserve : null;
   result.cancellationRate =
     result.contractsWritten > 0 ? result.contractsCancelled / result.contractsWritten : null;
   result.adminPerContract =
@@ -254,7 +318,7 @@ function aggregate(
       let factor = 1.0;
       if (state.schedule && state.effectiveDate) {
         const elapsed = elapsedMonths(state.effectiveDate, end);
-        factor = elapsed <= 0 ? 0 : state.schedule[elapsed] ?? 1.0;
+        factor = elapsed <= 0 ? 0 : (state.schedule[elapsed] ?? 1.0);
       }
       result.earnedReserve += state.written * factor;
     }
@@ -280,11 +344,13 @@ function normalizeContract(
   const sourceId = idOf(document);
   const contractNumber = businessId(metadata['Contract#']);
   const dealerName = text(metadata.DealerName);
-  
-  let transactionType = forceType || classify(
-    metadata['Status(NewBusiness,Cancellation,Upgrade,Adjustment)'],
-    metadata.ContractStatus,
-  );
+
+  let transactionType =
+    forceType ||
+    classify(
+      metadata['Status(NewBusiness,Cancellation,Upgrade,Adjustment)'],
+      metadata.ContractStatus,
+    );
 
   const hasCancelBillDate = firstDate(metadata.CancelBillDate) !== null;
   if (transactionType !== 'Cancellation' && hasCancelBillDate) {
@@ -295,7 +361,8 @@ function normalizeContract(
       contractNumber,
       dealerName,
       sourceId,
-      message: 'Transaction forced to Cancellation because a CancelBillDate was present, despite status fields.',
+      message:
+        'Transaction forced to Cancellation because a CancelBillDate was present, despite status fields.',
     });
   }
   const isCancellation = transactionType === 'Cancellation';
@@ -340,7 +407,7 @@ function normalizeContract(
   }
 
   const amountContainer = isCancellation ? document.CancelledAmount : document.WrittenAmount;
-  
+
   const effectiveDate = firstDate(metadata.EffectiveDate, metadata.ActivationDate);
   const calculated = record(document.CalculatedFields);
   const earningCurve = record(calculated.EarningCurve);
@@ -370,8 +437,10 @@ function normalizeContract(
     riskEntity: text(metadata.RiskEntity),
     adminAmount: sumComponents(amountContainer, 'ADMIN', config),
     reserveAmount: sumComponents(amountContainer, 'RESERVE', config),
+    earnedReserveAmount: 0,
     effectiveDate,
     earningSchedule: Object.keys(earningSchedule).length > 0 ? earningSchedule : null,
+    components: extractComponents(amountContainer),
   };
 }
 
@@ -392,7 +461,7 @@ function normalizeWrittenReferenceFromCancellation(
   if (!activityDate || activityDate > config.asOfDate) return null;
 
   const sourceId = idOf(document);
-  
+
   const effectiveDate = firstDate(metadata.EffectiveDate, metadata.ActivationDate);
   const calculated = record(document.CalculatedFields);
   const earningCurve = record(calculated.EarningCurve);
@@ -422,8 +491,10 @@ function normalizeWrittenReferenceFromCancellation(
     riskEntity: text(metadata.RiskEntity),
     adminAmount: sumComponents(document.WrittenAmount, 'ADMIN', config),
     reserveAmount: sumComponents(document.WrittenAmount, 'RESERVE', config),
+    earnedReserveAmount: 0,
     effectiveDate,
     earningSchedule: Object.keys(earningSchedule).length > 0 ? earningSchedule : null,
+    components: extractComponents(document.WrittenAmount),
   };
 }
 
@@ -437,7 +508,12 @@ function normalizeClaim(
   const dealerName = text(document['Selling Dealer Name'] ?? document.DealerName);
   const claimStatus = text(document['Claim Status']);
   const detailStatus = text(document['Claim Detail Status']);
-  const status = claimStatus.toLowerCase() === 'paid' ? claimStatus : (detailStatus.toLowerCase() === 'paid' ? detailStatus : (claimStatus || detailStatus));
+  const status =
+    claimStatus.toLowerCase() === 'paid'
+      ? claimStatus
+      : detailStatus.toLowerCase() === 'paid'
+        ? detailStatus
+        : claimStatus || detailStatus;
   const activity = text(document.Activity);
   const paid = number(document['Total Paid Amount']);
   const activityDate = firstDate(document['Date Paid'], document['Claim Date Claim is Reported']);
@@ -582,10 +658,22 @@ function dimensionMetrics(
             ),
           ].sort((a, b) => a.localeCompare(b))
         : undefined;
+    const relatedDealers =
+      dimension === 'agent'
+        ? [
+            ...new Set(
+              matchingTransactions
+                .filter((item) => inRange(item.activityDate, start, end))
+                .map((item) => item.dealerName || item.dealerNumber)
+                .filter((d) => d && d !== 'Unassigned' && d !== 'Unknown Dealer'),
+            ),
+          ].sort((a, b) => a.localeCompare(b))
+        : undefined;
     rows.push({
       name,
       displayName,
       relatedAgents,
+      relatedDealers,
       ...aggregate(matchingTransactions, matchingClaims, start, end),
     });
   }
@@ -728,12 +816,12 @@ function buildLossCodeDashboard(
 export class ReportTransformer {
   constructor(private readonly config: ReportConfig) {}
 
-  transform(
-    contractDocuments: UnknownDocument[],
-    cancellationDocuments: UnknownDocument[],
-    claimDocuments: UnknownDocument[],
+  async transform(
+    contractDocuments: AsyncIterable<UnknownDocument>,
+    cancellationDocuments: AsyncIterable<UnknownDocument>,
+    claimDocuments: AsyncIterable<UnknownDocument>,
     pipelineAudits: PipelineAuditRecord[] = [],
-  ): ReportModel {
+  ): Promise<ReportModel> {
     // A report run during an open month is always cut off at the end of the
     // previous month. Apply that cutoff during normalization so current-month
     // activity cannot leak into detail, quality, or dashboard tabs.
@@ -742,12 +830,39 @@ export class ReportTransformer {
     const currentEnd = endOfMonth(currentStart);
     const reportingConfig: ReportConfig = { ...this.config, asOfDate: currentEnd };
     const issues: DataQualityIssue[] = [];
-    const normalizedContractSnapshots = contractDocuments
-      .map((item) => normalizeContract(item, reportingConfig, issues))
-      .filter((item): item is NormalizedContractTransaction => item !== null);
-    const normalizedCancellationSnapshots = cancellationDocuments
-      .map((item) => normalizeContract(item, reportingConfig, issues, 'Cancellation'))
-      .filter((item): item is NormalizedContractTransaction => item !== null);
+
+    const normalizedContractSnapshots: NormalizedContractTransaction[] = [];
+    let rawContractCount = 0;
+    for await (const doc of contractDocuments) {
+      rawContractCount++;
+      if (rawContractCount % 25000 === 0) {
+        process.stdout.write(`\rExtracting Contracts: ${rawContractCount.toLocaleString()}...`);
+      }
+      const normalized = normalizeContract(doc, reportingConfig, issues);
+      if (normalized) normalizedContractSnapshots.push(normalized);
+    }
+    console.log(`\nFinished extracting ${rawContractCount.toLocaleString()} raw contracts.`);
+
+    const normalizedCancellationSnapshots: NormalizedContractTransaction[] = [];
+    const syntheticWrittenReferences: NormalizedContractTransaction[] = [];
+    let rawCancellationCount = 0;
+    for await (const doc of cancellationDocuments) {
+      rawCancellationCount++;
+      if (rawCancellationCount % 10000 === 0) {
+        process.stdout.write(
+          `\rExtracting Cancellations: ${rawCancellationCount.toLocaleString()}...`,
+        );
+      }
+      const normalized = normalizeContract(doc, reportingConfig, issues, 'Cancellation');
+      if (normalized) normalizedCancellationSnapshots.push(normalized);
+
+      // Extract original written-side snapshot from cancellation doc.
+      const reference = normalizeWrittenReferenceFromCancellation(doc, reportingConfig);
+      if (reference) syntheticWrittenReferences.push(reference);
+    }
+    console.log(
+      `\nFinished extracting ${rawCancellationCount.toLocaleString()} raw cancellations.`,
+    );
 
     const contractTransactions = latestSnapshotBy(
       normalizedContractSnapshots,
@@ -769,9 +884,8 @@ export class ReportTransformer {
         .filter((item) => item.transactionType !== 'Cancellation' && item.contractNumber)
         .map((item) => item.contractNumber),
     );
-    for (const document of cancellationDocuments) {
-      const reference = normalizeWrittenReferenceFromCancellation(document, reportingConfig);
-      if (reference?.contractNumber && !writtenContracts.has(reference.contractNumber)) {
+    for (const reference of syntheticWrittenReferences) {
+      if (reference.contractNumber && !writtenContracts.has(reference.contractNumber)) {
         normalizedTransactions.push(reference);
         writtenContracts.add(reference.contractNumber);
       }
@@ -785,9 +899,62 @@ export class ReportTransformer {
           : item.sourceId,
       (item) => item.snapshotDate,
     );
-    const normalizedClaims = claimDocuments
-      .map((item) => normalizeClaim(item, currentEnd, issues))
-      .filter((item): item is NormalizedClaim => item !== null);
+
+    const contractStatesForEarned = new Map<
+      string,
+      {
+        written: number;
+        cancelled: number;
+        effectiveDate: Date | null;
+        schedule: Record<number, number> | null;
+      }
+    >();
+    for (const tx of transactions) {
+      if (!tx.contractNumber) continue;
+      let state = contractStatesForEarned.get(tx.contractNumber);
+      if (!state) {
+        state = { written: 0, cancelled: 0, effectiveDate: null, schedule: null };
+        contractStatesForEarned.set(tx.contractNumber, state);
+      }
+      if (tx.transactionType !== 'Cancellation') {
+        state.written += tx.reserveAmount;
+        state.effectiveDate = tx.effectiveDate;
+        state.schedule = tx.earningSchedule;
+      } else {
+        state.cancelled += Math.abs(tx.reserveAmount);
+      }
+    }
+
+    for (const tx of transactions) {
+      if (tx.transactionType !== 'Cancellation' && tx.contractNumber) {
+        const state = contractStatesForEarned.get(tx.contractNumber);
+        if (state) {
+          if (state.cancelled > 0 && state.written > 0) {
+            tx.earnedReserveAmount = Math.max(0, state.written - state.cancelled);
+          } else if (state.written > 0) {
+            let factor = 1.0;
+            if (state.schedule && state.effectiveDate) {
+              const elapsed = elapsedMonths(state.effectiveDate, currentEnd);
+              factor = elapsed <= 0 ? 0 : (state.schedule[elapsed] ?? 1.0);
+            }
+            tx.earnedReserveAmount = state.written * factor;
+          }
+        }
+      }
+    }
+
+    const normalizedClaims: NormalizedClaim[] = [];
+    let rawClaimCount = 0;
+    for await (const doc of claimDocuments) {
+      rawClaimCount++;
+      if (rawClaimCount % 5000 === 0) {
+        process.stdout.write(`\rExtracting Claims: ${rawClaimCount.toLocaleString()}...`);
+      }
+      const normalized = normalizeClaim(doc, currentEnd, issues);
+      if (normalized) normalizedClaims.push(normalized);
+    }
+    console.log(`\nFinished extracting ${rawClaimCount.toLocaleString()} raw claims.`);
+
     const claimCounts = new Map<string, number>();
     const claims = latestSnapshotBy(
       normalizedClaims,
@@ -815,6 +982,7 @@ export class ReportTransformer {
     const priorRollingEnd = endOfMonth(addMonths(currentStart, -12));
     const priorCalendarYearStart = new Date(currentStart.getFullYear() - 1, 0, 1);
     const priorCalendarYearEnd = new Date(currentStart.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
+    const inceptionStart = new Date(2010, 0, 1); // Guaranteed to capture all history
 
     const monthly: MonthlyMetric[] = [];
     for (
@@ -862,17 +1030,24 @@ export class ReportTransformer {
         start: priorCalendarYearStart,
         end: priorCalendarYearEnd,
       },
+      inceptionToDate: {
+        values: aggregate(transactions, claims, inceptionStart, currentEnd),
+        start: inceptionStart,
+        end: currentEnd,
+      },
       monthly,
       dealers: dimensionMetrics('dealer', transactions, claims, rollingStart, currentEnd),
+      itdDealers: dimensionMetrics('dealer', transactions, claims, inceptionStart, currentEnd),
       monthlyDealers: dimensionMetrics('dealer', transactions, claims, currentStart, currentEnd),
-      agents: dimensionMetrics('agent', transactions, claims, rollingStart, currentEnd).filter(
-        (agent) => agent.name.trim().toLowerCase() !== 'test',
-      ),
-      monthlyAgents: dimensionMetrics('agent', transactions, claims, currentStart, currentEnd).filter(
-        (agent) => agent.name.trim().toLowerCase() !== 'test',
-      ),
+      ytdDealers: dimensionMetrics('dealer', transactions, claims, ytdStart, currentEnd),
+      agents: dimensionMetrics('agent', transactions, claims, rollingStart, currentEnd),
+      itdAgents: dimensionMetrics('agent', transactions, claims, inceptionStart, currentEnd),
+      monthlyAgents: dimensionMetrics('agent', transactions, claims, currentStart, currentEnd),
+      ytdAgents: dimensionMetrics('agent', transactions, claims, ytdStart, currentEnd),
       products: dimensionMetrics('product', transactions, claims, rollingStart, currentEnd),
+      itdProducts: dimensionMetrics('product', transactions, claims, inceptionStart, currentEnd),
       monthlyProducts: dimensionMetrics('product', transactions, claims, currentStart, currentEnd),
+      ytdProducts: dimensionMetrics('product', transactions, claims, ytdStart, currentEnd),
       lossCodeDashboard: buildLossCodeDashboard(
         claims,
         currentStart,
@@ -885,9 +1060,9 @@ export class ReportTransformer {
       dataQualityIssues: issues,
       pipelineAudits,
       sourceCounts: {
-        contractDocuments: contractDocuments.length,
-        cancellationDocuments: cancellationDocuments.length,
-        claimDocuments: claimDocuments.length,
+        contractDocuments: rawContractCount,
+        cancellationDocuments: rawCancellationCount,
+        claimDocuments: rawClaimCount,
         uniqueContractTransactions: transactions.length,
         uniqueClaims: claims.length,
       },
