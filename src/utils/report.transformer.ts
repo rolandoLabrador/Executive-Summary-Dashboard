@@ -513,6 +513,17 @@ function normalizeClaim(
         : claimStatus || detailStatus;
   const activity = text(document.Activity);
   const paid = number(document['Total Paid Amount']);
+  const claimDescription = text(document['Claim Description']);
+
+  // Exclude deductibles from negative claim amounts so they don't incorrectly reduce claimsPaid
+  if (
+    paid < 0 &&
+    (claimDescription.toLowerCase() === 'perrepair' ||
+      claimDescription.toLowerCase() === 'disappearing')
+  ) {
+    return null;
+  }
+
   const activityDate = firstDate(document['Date Paid'], document['Claim Date Claim is Reported']);
 
   if (status.toLowerCase() !== 'paid' && activity.toLowerCase() !== 'payment issued') return null;
