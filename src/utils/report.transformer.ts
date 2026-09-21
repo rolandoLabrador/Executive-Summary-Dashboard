@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   type DataQualityIssue,
   type DimensionMetric,
@@ -15,6 +17,18 @@ import {
   type UnknownDocument,
   type VehicleMakeMetric,
 } from '../models/report.types';
+
+let debugFileInitialized = false;
+function logExcludedDeductible(claimNumber: string, dealerName: string, amount: number, description: string) {
+  const outputDir = path.resolve('output');
+  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+  const debugFile = path.join(outputDir, 'excluded_deductibles.csv');
+  if (!debugFileInitialized) {
+    fs.writeFileSync(debugFile, 'Claim Number,Dealer Name,Amount,Description\n');
+    debugFileInitialized = true;
+  }
+  fs.appendFileSync(debugFile, `"${claimNumber}","${dealerName}",${amount},"${description}"\n`);
+}
 
 const UNMAPPED_LOSS_CODE = 'UNMAPPED';
 const UNAVAILABLE_LOSS_DESCRIPTION = 'Description unavailable';
@@ -521,6 +535,8 @@ function normalizeClaim(
     (claimDescription.toLowerCase() === 'perrepair' ||
       claimDescription.toLowerCase() === 'disappearing')
   ) {
+    const claimNum = text(document['Claim Number']);
+    logExcludedDeductible(claimNum, dealerName, paid, claimDescription);
     return null;
   }
 
