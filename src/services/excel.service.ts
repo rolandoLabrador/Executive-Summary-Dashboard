@@ -701,6 +701,80 @@ export class ExcelService {
         rules: [dataBarRule(20)],
       });
     }
+
+    // Add Inception to Date (ITD) Table for the SAME top 20 dealers
+    const itdStartRow = startRow + worst.length + 4;
+    
+    ws.mergeCells(itdStartRow, firstColumn, itdStartRow, firstColumn + 11);
+    const headingITD = ws.getCell(itdStartRow, firstColumn);
+    headingITD.value = 'INCEPTION TO DATE PERFORMANCE FOR THE ABOVE DEALERS';
+    headingITD.font = { bold: true, size: 12, color: { argb: COLORS.navy } };
+
+    const headerRowITD = ws.getRow(itdStartRow + 1);
+    
+    headerRowITD.getCell(8).value = 'Rank';
+    
+    ws.mergeCells(itdStartRow + 1, 9, itdStartRow + 1, 11);
+    headerRowITD.getCell(9).value = 'Dealer';
+    
+    ws.mergeCells(itdStartRow + 1, 12, itdStartRow + 1, 13);
+    headerRowITD.getCell(12).value = 'Claim Count';
+    
+    ws.mergeCells(itdStartRow + 1, 14, itdStartRow + 1, 15);
+    headerRowITD.getCell(14).value = 'Claims Paid';
+
+    ws.mergeCells(itdStartRow + 1, 16, itdStartRow + 1, 17);
+    headerRowITD.getCell(16).value = 'Net Admin';
+    
+    ws.mergeCells(itdStartRow + 1, 18, itdStartRow + 1, 19);
+    headerRowITD.getCell(18).value = 'Paid Loss Ratio';
+
+    [8, 9, 12, 14, 16, 18].forEach(col => {
+       const cell = headerRowITD.getCell(col);
+       cell.font = { bold: true, color: { argb: COLORS.white } };
+       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
+       cell.alignment = { horizontal: 'center' };
+    });
+
+    const itdDealersMap = new Map(model.itdDealers.map(d => [d.name, d]));
+
+    worst.forEach((dealer, index) => {
+      const itdDealer = itdDealersMap.get(dealer.name);
+      const row = ws.getRow(itdStartRow + 2 + index);
+      
+      row.getCell(8).value = index + 1;
+      row.getCell(8).alignment = { horizontal: 'center' };
+      
+      ws.mergeCells(itdStartRow + 2 + index, 9, itdStartRow + 2 + index, 11);
+      row.getCell(9).value = dealer.displayName || dealer.name;
+      
+      ws.mergeCells(itdStartRow + 2 + index, 12, itdStartRow + 2 + index, 13);
+      row.getCell(12).value = itdDealer ? itdDealer.claimCount : 0;
+      row.getCell(12).numFmt = INTEGER;
+      row.getCell(12).alignment = { horizontal: 'center' };
+      
+      ws.mergeCells(itdStartRow + 2 + index, 14, itdStartRow + 2 + index, 15);
+      row.getCell(14).value = itdDealer ? itdDealer.claimsPaid : 0;
+      row.getCell(14).numFmt = MONEY;
+      row.getCell(14).alignment = { horizontal: 'center' };
+
+      ws.mergeCells(itdStartRow + 2 + index, 16, itdStartRow + 2 + index, 17);
+      row.getCell(16).value = itdDealer ? itdDealer.netAdmin : 0;
+      row.getCell(16).numFmt = MONEY;
+      row.getCell(16).alignment = { horizontal: 'center' };
+      
+      ws.mergeCells(itdStartRow + 2 + index, 18, itdStartRow + 2 + index, 19);
+      row.getCell(18).value = itdDealer ? itdDealer.paidLossRatio : 0;
+      row.getCell(18).numFmt = PERCENT;
+      row.getCell(18).alignment = { horizontal: 'center' };
+    });
+
+    if (worst.length > 0) {
+      ws.addConditionalFormatting({
+        ref: `R${itdStartRow + 2}:S${itdStartRow + 1 + worst.length}`,
+        rules: [dataBarRule(20)],
+      });
+    }
   }
 
   private buildLossCodeDashboard(workbook: ExcelJS.Workbook, model: ReportModel): void {
