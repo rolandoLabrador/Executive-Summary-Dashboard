@@ -630,35 +630,32 @@ export class ExcelService {
     dealers.sort((a, b) => (b.earnedLossRatio || 0) - (a.earnedLossRatio || 0));
     const worst = dealers.slice(0, 20);
 
+    // ROLLING 12 TABLE
     ws.mergeCells(startRow, firstColumn, startRow, firstColumn + 11);
     const heading = ws.getCell(startRow, firstColumn);
     heading.value = 'TOP 20 WORST PERFORMING DEALERS BY EARNED LOSS RATIO (ROLLING 12)';
     heading.font = { bold: true, size: 12, color: { argb: COLORS.navy } };
 
     const headerRow = ws.getRow(startRow + 1);
+    headerRow.height = 30; // Make room for wrapping text
     
     headerRow.getCell(8).value = 'Rank';
     
-    ws.mergeCells(startRow + 1, 9, startRow + 1, 11);
+    ws.mergeCells(startRow + 1, 9, startRow + 1, 13);
     headerRow.getCell(9).value = 'Dealer';
     
-    ws.mergeCells(startRow + 1, 12, startRow + 1, 13);
-    headerRow.getCell(12).value = 'Active Contracts';
-    
-    ws.mergeCells(startRow + 1, 14, startRow + 1, 15);
-    headerRow.getCell(14).value = 'Premium';
+    headerRow.getCell(14).value = 'Active Contracts';
+    headerRow.getCell(15).value = 'Claim Count';
+    headerRow.getCell(16).value = 'Claims Paid';
+    headerRow.getCell(17).value = 'Premium';
+    headerRow.getCell(18).value = 'Net Admin';
+    headerRow.getCell(19).value = 'Paid Loss Ratio';
 
-    ws.mergeCells(startRow + 1, 16, startRow + 1, 17);
-    headerRow.getCell(16).value = 'Paid Loss Ratio';
-    
-    ws.mergeCells(startRow + 1, 18, startRow + 1, 19);
-    headerRow.getCell(18).value = 'Earned Loss Ratio';
-
-    [8, 9, 12, 14, 16, 18].forEach(col => {
+    [8, 9, 14, 15, 16, 17, 18, 19].forEach(col => {
        const cell = headerRow.getCell(col);
        cell.font = { bold: true, color: { argb: COLORS.white } };
        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
-       cell.alignment = { horizontal: 'center' };
+       cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     });
 
     worst.forEach((dealer, index) => {
@@ -667,42 +664,42 @@ export class ExcelService {
       row.getCell(8).value = index + 1;
       row.getCell(8).alignment = { horizontal: 'center' };
       
-      ws.mergeCells(startRow + 2 + index, 9, startRow + 2 + index, 11);
+      ws.mergeCells(startRow + 2 + index, 9, startRow + 2 + index, 13);
       row.getCell(9).value = dealer.displayName || dealer.name;
       
-      ws.mergeCells(startRow + 2 + index, 12, startRow + 2 + index, 13);
-      row.getCell(12).value = dealer.activeContracts;
-      row.getCell(12).numFmt = INTEGER;
-      row.getCell(12).alignment = { horizontal: 'center' };
-      
-      ws.mergeCells(startRow + 2 + index, 14, startRow + 2 + index, 15);
-      row.getCell(14).value = dealer.premium;
-      row.getCell(14).numFmt = MONEY;
+      row.getCell(14).value = dealer.activeContracts;
+      row.getCell(14).numFmt = INTEGER;
       row.getCell(14).alignment = { horizontal: 'center' };
+      
+      row.getCell(15).value = dealer.claimCount;
+      row.getCell(15).numFmt = INTEGER;
+      row.getCell(15).alignment = { horizontal: 'center' };
 
-      ws.mergeCells(startRow + 2 + index, 16, startRow + 2 + index, 17);
-      row.getCell(16).value = dealer.paidLossRatio;
-      row.getCell(16).numFmt = PERCENT;
+      row.getCell(16).value = dealer.claimsPaid;
+      row.getCell(16).numFmt = MONEY;
       row.getCell(16).alignment = { horizontal: 'center' };
       
-      ws.mergeCells(startRow + 2 + index, 18, startRow + 2 + index, 19);
-      row.getCell(18).value = dealer.earnedLossRatio;
-      row.getCell(18).numFmt = PERCENT;
+      row.getCell(17).value = dealer.premium;
+      row.getCell(17).numFmt = MONEY;
+      row.getCell(17).alignment = { horizontal: 'center' };
+      
+      row.getCell(18).value = dealer.netAdmin;
+      row.getCell(18).numFmt = MONEY;
       row.getCell(18).alignment = { horizontal: 'center' };
+
+      row.getCell(19).value = dealer.paidLossRatio;
+      row.getCell(19).numFmt = PERCENT;
+      row.getCell(19).alignment = { horizontal: 'center' };
     });
 
     if (worst.length > 0) {
       ws.addConditionalFormatting({
-        ref: `R${startRow + 2}:S${startRow + 1 + worst.length}`,
-        rules: [dataBarRule(20)],
-      });
-      ws.addConditionalFormatting({
-        ref: `P${startRow + 2}:Q${startRow + 1 + worst.length}`,
+        ref: `S${startRow + 2}:S${startRow + 1 + worst.length}`,
         rules: [dataBarRule(20)],
       });
     }
 
-    // Add Inception to Date (ITD) Table for the SAME top 20 dealers
+    // ITD TABLE
     const itdStartRow = startRow + worst.length + 4;
     
     ws.mergeCells(itdStartRow, firstColumn, itdStartRow, firstColumn + 11);
@@ -711,29 +708,25 @@ export class ExcelService {
     headingITD.font = { bold: true, size: 12, color: { argb: COLORS.navy } };
 
     const headerRowITD = ws.getRow(itdStartRow + 1);
+    headerRowITD.height = 30; // Make room for wrapping text
     
     headerRowITD.getCell(8).value = 'Rank';
     
-    ws.mergeCells(itdStartRow + 1, 9, itdStartRow + 1, 11);
+    ws.mergeCells(itdStartRow + 1, 9, itdStartRow + 1, 13);
     headerRowITD.getCell(9).value = 'Dealer';
     
-    ws.mergeCells(itdStartRow + 1, 12, itdStartRow + 1, 13);
-    headerRowITD.getCell(12).value = 'Claim Count';
-    
-    ws.mergeCells(itdStartRow + 1, 14, itdStartRow + 1, 15);
-    headerRowITD.getCell(14).value = 'Claims Paid';
+    headerRowITD.getCell(14).value = 'Active Contracts';
+    headerRowITD.getCell(15).value = 'Claim Count';
+    headerRowITD.getCell(16).value = 'Claims Paid';
+    headerRowITD.getCell(17).value = 'Premium';
+    headerRowITD.getCell(18).value = 'Net Admin';
+    headerRowITD.getCell(19).value = 'Paid Loss Ratio';
 
-    ws.mergeCells(itdStartRow + 1, 16, itdStartRow + 1, 17);
-    headerRowITD.getCell(16).value = 'Net Admin';
-    
-    ws.mergeCells(itdStartRow + 1, 18, itdStartRow + 1, 19);
-    headerRowITD.getCell(18).value = 'Paid Loss Ratio';
-
-    [8, 9, 12, 14, 16, 18].forEach(col => {
+    [8, 9, 14, 15, 16, 17, 18, 19].forEach(col => {
        const cell = headerRowITD.getCell(col);
        cell.font = { bold: true, color: { argb: COLORS.white } };
        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
-       cell.alignment = { horizontal: 'center' };
+       cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     });
 
     const itdDealersMap = new Map(model.itdDealers.map(d => [d.name, d]));
@@ -745,33 +738,37 @@ export class ExcelService {
       row.getCell(8).value = index + 1;
       row.getCell(8).alignment = { horizontal: 'center' };
       
-      ws.mergeCells(itdStartRow + 2 + index, 9, itdStartRow + 2 + index, 11);
+      ws.mergeCells(itdStartRow + 2 + index, 9, itdStartRow + 2 + index, 13);
       row.getCell(9).value = dealer.displayName || dealer.name;
       
-      ws.mergeCells(itdStartRow + 2 + index, 12, itdStartRow + 2 + index, 13);
-      row.getCell(12).value = itdDealer ? itdDealer.claimCount : 0;
-      row.getCell(12).numFmt = INTEGER;
-      row.getCell(12).alignment = { horizontal: 'center' };
-      
-      ws.mergeCells(itdStartRow + 2 + index, 14, itdStartRow + 2 + index, 15);
-      row.getCell(14).value = itdDealer ? itdDealer.claimsPaid : 0;
-      row.getCell(14).numFmt = MONEY;
+      row.getCell(14).value = itdDealer ? itdDealer.activeContracts : 0;
+      row.getCell(14).numFmt = INTEGER;
       row.getCell(14).alignment = { horizontal: 'center' };
 
-      ws.mergeCells(itdStartRow + 2 + index, 16, itdStartRow + 2 + index, 17);
-      row.getCell(16).value = itdDealer ? itdDealer.netAdmin : 0;
+      row.getCell(15).value = itdDealer ? itdDealer.claimCount : 0;
+      row.getCell(15).numFmt = INTEGER;
+      row.getCell(15).alignment = { horizontal: 'center' };
+      
+      row.getCell(16).value = itdDealer ? itdDealer.claimsPaid : 0;
       row.getCell(16).numFmt = MONEY;
       row.getCell(16).alignment = { horizontal: 'center' };
-      
-      ws.mergeCells(itdStartRow + 2 + index, 18, itdStartRow + 2 + index, 19);
-      row.getCell(18).value = itdDealer ? itdDealer.paidLossRatio : 0;
-      row.getCell(18).numFmt = PERCENT;
+
+      row.getCell(17).value = itdDealer ? itdDealer.premium : 0;
+      row.getCell(17).numFmt = MONEY;
+      row.getCell(17).alignment = { horizontal: 'center' };
+
+      row.getCell(18).value = itdDealer ? itdDealer.netAdmin : 0;
+      row.getCell(18).numFmt = MONEY;
       row.getCell(18).alignment = { horizontal: 'center' };
+      
+      row.getCell(19).value = itdDealer ? itdDealer.paidLossRatio : 0;
+      row.getCell(19).numFmt = PERCENT;
+      row.getCell(19).alignment = { horizontal: 'center' };
     });
 
     if (worst.length > 0) {
       ws.addConditionalFormatting({
-        ref: `R${itdStartRow + 2}:S${itdStartRow + 1 + worst.length}`,
+        ref: `S${itdStartRow + 2}:S${itdStartRow + 1 + worst.length}`,
         rules: [dataBarRule(20)],
       });
     }
