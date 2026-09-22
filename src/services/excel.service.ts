@@ -1040,6 +1040,7 @@ export class ExcelService {
       { width: 14, numFmt: 'mm/dd/yyyy' },
       { width: 18 },
       { width: 14 },
+      { width: 12 }, // Status
       { width: 24 },
       { width: 14 },
       { width: 30 },
@@ -1061,6 +1062,7 @@ export class ExcelService {
       'Activity Date',
       'Contract Number',
       'Transaction',
+      'Status',
       'Agent',
       'Dealer Number',
       'Dealer Name',
@@ -1078,9 +1080,23 @@ export class ExcelService {
     // SAMPLE SIZE REDUCTION
     // Writes 1 out of every 33 contracts (~3% chronological sample spread across all years).
     // This dramatically solves the Excel generation bottleneck while providing a huge representative dataset.
+    const debugDealers = process.env.DEBUG_DEALER_NAME 
+      ? process.env.DEBUG_DEALER_NAME.split(',').map(s => s.trim().toLowerCase()) 
+      : [];
+    const debugAgents = process.env.DEBUG_AGENT_NAME
+      ? process.env.DEBUG_AGENT_NAME.split(',').map(s => s.trim().toLowerCase()) 
+      : [];
+    const hasDebug = debugDealers.length > 0 || debugAgents.length > 0;
+
     let sampledCount = 0;
     model.contractTransactions.forEach((item, index) => {
-      if (index % 33 !== 0) return;
+      if (hasDebug) {
+        const dealerMatch = debugDealers.includes(item.dealerNumber.toLowerCase()) || debugDealers.includes((item.dealerName || item.dealer).toLowerCase());
+        const agentMatch = debugAgents.includes(item.agent.toLowerCase());
+        if (!dealerMatch && !agentMatch) return;
+      } else {
+        if (index % 33 !== 0) return;
+      }
       sampledCount++;
 
       const rowValues: ExcelJS.CellValue[] = [
@@ -1089,6 +1105,7 @@ export class ExcelService {
         item.activityDate,
         item.contractNumber,
         item.transactionType,
+        item.contractStatus, // Status column
         item.agent,
         item.dealerNumber,
         item.dealerName || item.dealer,
@@ -1160,7 +1177,28 @@ export class ExcelService {
       'Payment Key',
     ];
     styleHeader(ws.getRow(4));
-    model.claims.forEach((item) => {
+
+    const debugDealers = process.env.DEBUG_DEALER_NAME 
+      ? process.env.DEBUG_DEALER_NAME.split(',').map(s => s.trim().toLowerCase()) 
+      : [];
+    const debugAgents = process.env.DEBUG_AGENT_NAME
+      ? process.env.DEBUG_AGENT_NAME.split(',').map(s => s.trim().toLowerCase()) 
+      : [];
+    const hasDebug = debugDealers.length > 0 || debugAgents.length > 0;
+
+    let sampledCount = 0;
+    model.claims.forEach((item, index) => {
+      if (hasDebug) {
+        const dealerMatch = debugDealers.includes(item.dealer.toLowerCase());
+        const agentMatch = debugAgents.includes(item.agent.toLowerCase());
+        if (!dealerMatch && !agentMatch) return;
+      } else {
+        // SAMPLE SIZE REDUCTION
+        // Writes 1 out of every 33 claims (~3% chronological sample spread across all years).
+        if (index % 33 !== 0) return;
+      }
+      sampledCount++;
+
       ws.addRow([
         item.sourceId,
         item.snapshotDate,
@@ -1177,7 +1215,7 @@ export class ExcelService {
         item.paymentKey,
       ]);
     });
-    ws.autoFilter = { from: 'A4', to: `M${Math.max(5, model.claims.length + 4)}` };
+    ws.autoFilter = { from: 'A4', to: `M${Math.max(5, sampledCount + 4)}` };
   }
 
   private buildDataQuality(workbook: ExcelJS.Workbook, model: ReportModel): void {
