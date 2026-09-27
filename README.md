@@ -124,3 +124,9 @@ files or GitHub issue comments.
 Use Windows Task Scheduler to invoke the report command with the desired month-end
 date. Run the task under a service identity with read-only MongoDB access and write
 access only to the report output location.
+
+Here is the inception to date for MS399
+Claims Paid: $215,482.93
+Earned Reserve: $30,698.56
+Net Admin: $41,575.00
+Math: $215,482.93 ÷ ($30,698.56 + $41,575.00) = 2.98 (298% Earned Loss Ratio)

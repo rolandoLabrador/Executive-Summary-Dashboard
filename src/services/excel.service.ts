@@ -141,7 +141,6 @@ const KPI_DEFINITIONS: MetricDefinition[] = [
   { label: 'Earned Reserve', key: 'earnedReserve', format: MONEY },
   { label: 'Claims Paid', key: 'claimsPaid', format: MONEY },
   { label: 'Underwriting Profit', key: 'underwritingProfit', format: MONEY },
-  { label: 'Paid Loss Ratio', key: 'paidLossRatio', format: PERCENT },
   { label: 'Earned Loss Ratio', key: 'earnedLossRatio', format: PERCENT },
   { label: 'Cancellation Rate', key: 'cancellationRate', format: PERCENT },
 ];
@@ -225,12 +224,9 @@ function writeComparison(
     const cell = row.getCell(5);
     cell.numFmt = PERCENT;
     if (changePercent !== null && changePercent !== 0) {
-      const isBadIncrease = [
-        'paidLossRatio',
-        'earnedLossRatio',
-        'cancellationRate',
-        'claimsPaid',
-      ].includes(definition.key);
+      const isBadIncrease = ['earnedLossRatio', 'cancellationRate', 'claimsPaid'].includes(
+        definition.key,
+      );
       const isPositive = changePercent > 0;
       const isGreen = isBadIncrease ? !isPositive : isPositive;
       cell.font = {
@@ -281,7 +277,7 @@ function buildThreeTierDimensionSheet(
   configureWorksheet(ws);
   const isDealer = name === 'Dealer Dashboard';
   const isAgent = name === 'Agent Dashboard';
-  const maxCols = isDealer || isAgent ? 20 : 18;
+  const maxCols = isDealer || isAgent ? 19 : 17;
   title(
     ws,
     heading,
@@ -316,7 +312,6 @@ function buildThreeTierDimensionSheet(
       'Claims Paid',
       'Underwriting Profit',
       'Claim Count',
-      'Paid Loss Ratio',
       'Earned Loss Ratio',
       'Cancellation Rate',
       'Loss Ratio Bar',
@@ -346,10 +341,9 @@ function buildThreeTierDimensionSheet(
         item.claimsPaid,
         item.underwritingProfit,
         item.claimCount,
-        item.paidLossRatio,
         item.earnedLossRatio,
         item.cancellationRate,
-        item.paidLossRatio,
+        item.earnedLossRatio,
       ];
       const offset = isDealer || isAgent ? 2 : 0;
       [3, 4, 6, 14].forEach((column) => {
@@ -358,7 +352,7 @@ function buildThreeTierDimensionSheet(
       [5, 7, 8, 9, 10, 11, 12, 13].forEach((column) => {
         row.getCell(column + offset).numFmt = MONEY;
       });
-      [15, 16, 17, 18].forEach((column) => {
+      [15, 16, 17].forEach((column) => {
         row.getCell(column + offset).numFmt = PERCENT;
       });
     });
@@ -366,9 +360,8 @@ function buildThreeTierDimensionSheet(
     if (selected.length > 0) {
       const firstDataRow = startRow + 2;
       const lastDataRow = startRow + 1 + selected.length;
-      const barCol = isDealer || isAgent ? 'T' : 'R';
-      const paidRatioCol = isDealer || isAgent ? 'Q' : 'O';
-      const earnedRatioCol = isDealer || isAgent ? 'R' : 'P';
+      const barCol = isDealer || isAgent ? 'S' : 'Q';
+      const earnedRatioCol = isDealer || isAgent ? 'Q' : 'O';
 
       ws.addConditionalFormatting({
         ref: `${barCol}${firstDataRow}:${barCol}${lastDataRow}`,
@@ -392,10 +385,6 @@ function buildThreeTierDimensionSheet(
         },
       ];
 
-      ws.addConditionalFormatting({
-        ref: `${paidRatioCol}${firstDataRow}:${paidRatioCol}${lastDataRow}`,
-        rules: ratioRules,
-      });
       ws.addConditionalFormatting({
         ref: `${earnedRatioCol}${firstDataRow}:${earnedRatioCol}${lastDataRow}`,
         rules: ratioRules,
@@ -430,13 +419,13 @@ function buildThreeTierDimensionSheet(
     { width: 16 }, // Gross Income
     { width: 14 }, // Cancellations Processed
     { width: 16 }, // Net Admin
+    { width: 16 }, // Avg Admin / Contract
     { width: 16 }, // Net Reserve
     { width: 16 }, // Premium
     { width: 16 }, // Earned Reserve
     { width: 16 }, // Claims Paid
     { width: 16 }, // Underwriting Profit
     { width: 12 }, // Claim Count
-    { width: 16 }, // Paid Loss Ratio
     { width: 16 }, // Earned Loss Ratio
     { width: 17 }, // Cancellation Rate
     { width: 28 }, // Loss Ratio Bar
@@ -500,6 +489,7 @@ export class ExcelService {
     this.buildContractDetail(workbook, model);
     this.buildClaimDetail(workbook, model);
     this.buildDataQuality(workbook, model);
+    this.buildDebugMath(workbook, model);
     this.buildDefinitions(workbook);
 
     return Buffer.from(await workbook.xlsx.writeBuffer());
@@ -593,8 +583,7 @@ export class ExcelService {
       { row: 7, label: 'Net Reserve', key: 'netReserve', format: MONEY },
       { row: 9, label: 'Earned Reserve', key: 'earnedReserve', format: MONEY },
       { row: 11, label: 'Claims Paid', key: 'claimsPaid', format: MONEY },
-      { row: 13, label: 'Paid Loss Ratio', key: 'paidLossRatio', format: PERCENT },
-      { row: 15, label: 'Earned Loss Ratio', key: 'earnedLossRatio', format: PERCENT },
+      { row: 13, label: 'Earned Loss Ratio', key: 'earnedLossRatio', format: PERCENT },
     ];
     trends.forEach(({ row, label, key, format }, trendIndex) => {
       ws.mergeCells(row - 1, firstColumn, row - 1, Math.max(firstColumn, lastColumn));
@@ -638,40 +627,41 @@ export class ExcelService {
 
     const headerRow = ws.getRow(startRow + 1);
     headerRow.height = 30; // Make room for wrapping text
-    
+
     headerRow.getCell(8).value = 'Rank';
-    
+
     ws.mergeCells(startRow + 1, 9, startRow + 1, 12);
     headerRow.getCell(9).value = 'Dealer';
-    
-    headerRow.getCell(13).value = 'Active Contracts';
+
+    headerRow.getCell(13).value = 'Active Contracts (Last 12M)';
+    headerRow.getCell(13).note =
+      'Only counts contracts that were activated within the last 12 months. Older active contracts are excluded from this table but included in the Inception to Date table below.';
     headerRow.getCell(14).value = 'Claim Count';
     headerRow.getCell(15).value = 'Claims Paid';
     headerRow.getCell(16).value = 'Premium';
     headerRow.getCell(17).value = 'Net Admin';
-    headerRow.getCell(18).value = 'Paid Loss Ratio';
-    headerRow.getCell(19).value = 'Earned Loss Ratio';
+    headerRow.getCell(18).value = 'Earned Loss Ratio';
 
-    [8, 9, 13, 14, 15, 16, 17, 18, 19].forEach(col => {
-       const cell = headerRow.getCell(col);
-       cell.font = { bold: true, color: { argb: COLORS.white } };
-       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
-       cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    [8, 9, 13, 14, 15, 16, 17, 18].forEach((col) => {
+      const cell = headerRow.getCell(col);
+      cell.font = { bold: true, color: { argb: COLORS.white } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     });
 
     worst.forEach((dealer, index) => {
       const row = ws.getRow(startRow + 2 + index);
-      
+
       row.getCell(8).value = index + 1;
       row.getCell(8).alignment = { horizontal: 'center' };
-      
+
       ws.mergeCells(startRow + 2 + index, 9, startRow + 2 + index, 12);
       row.getCell(9).value = dealer.displayName || dealer.name;
-      
+
       row.getCell(13).value = dealer.activeContracts;
       row.getCell(13).numFmt = INTEGER;
       row.getCell(13).alignment = { horizontal: 'center' };
-      
+
       row.getCell(14).value = dealer.claimCount;
       row.getCell(14).numFmt = INTEGER;
       row.getCell(14).alignment = { horizontal: 'center' };
@@ -679,34 +669,30 @@ export class ExcelService {
       row.getCell(15).value = dealer.claimsPaid;
       row.getCell(15).numFmt = MONEY;
       row.getCell(15).alignment = { horizontal: 'center' };
-      
+
       row.getCell(16).value = dealer.premium;
       row.getCell(16).numFmt = MONEY;
       row.getCell(16).alignment = { horizontal: 'center' };
-      
+
       row.getCell(17).value = dealer.netAdmin;
       row.getCell(17).numFmt = MONEY;
       row.getCell(17).alignment = { horizontal: 'center' };
 
-      row.getCell(18).value = dealer.paidLossRatio;
+      row.getCell(18).value = dealer.earnedLossRatio;
       row.getCell(18).numFmt = PERCENT;
       row.getCell(18).alignment = { horizontal: 'center' };
-
-      row.getCell(19).value = dealer.earnedLossRatio;
-      row.getCell(19).numFmt = PERCENT;
-      row.getCell(19).alignment = { horizontal: 'center' };
     });
 
     if (worst.length > 0) {
       ws.addConditionalFormatting({
-        ref: `S${startRow + 2}:S${startRow + 1 + worst.length}`,
+        ref: `R${startRow + 2}:R${startRow + 1 + worst.length}`,
         rules: [dataBarRule(20)],
       });
     }
 
     // ITD TABLE
     const itdStartRow = startRow + worst.length + 4;
-    
+
     ws.mergeCells(itdStartRow, firstColumn, itdStartRow, firstColumn + 11);
     const headingITD = ws.getCell(itdStartRow, firstColumn);
     headingITD.value = 'INCEPTION TO DATE PERFORMANCE FOR THE ABOVE DEALERS';
@@ -714,39 +700,38 @@ export class ExcelService {
 
     const headerRowITD = ws.getRow(itdStartRow + 1);
     headerRowITD.height = 30; // Make room for wrapping text
-    
+
     headerRowITD.getCell(8).value = 'Rank';
-    
+
     ws.mergeCells(itdStartRow + 1, 9, itdStartRow + 1, 12);
     headerRowITD.getCell(9).value = 'Dealer';
-    
+
     headerRowITD.getCell(13).value = 'Active Contracts';
     headerRowITD.getCell(14).value = 'Claim Count';
     headerRowITD.getCell(15).value = 'Claims Paid';
     headerRowITD.getCell(16).value = 'Premium';
     headerRowITD.getCell(17).value = 'Net Admin';
-    headerRowITD.getCell(18).value = 'Paid Loss Ratio';
-    headerRowITD.getCell(19).value = 'Earned Loss Ratio';
+    headerRowITD.getCell(18).value = 'Earned Loss Ratio';
 
-    [8, 9, 13, 14, 15, 16, 17, 18, 19].forEach(col => {
-       const cell = headerRowITD.getCell(col);
-       cell.font = { bold: true, color: { argb: COLORS.white } };
-       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
-       cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    [8, 9, 13, 14, 15, 16, 17, 18].forEach((col) => {
+      const cell = headerRowITD.getCell(col);
+      cell.font = { bold: true, color: { argb: COLORS.white } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     });
 
-    const itdDealersMap = new Map(model.itdDealers.map(d => [d.name, d]));
+    const itdDealersMap = new Map(model.itdDealers.map((d) => [d.name, d]));
 
     worst.forEach((dealer, index) => {
       const itdDealer = itdDealersMap.get(dealer.name);
       const row = ws.getRow(itdStartRow + 2 + index);
-      
+
       row.getCell(8).value = index + 1;
       row.getCell(8).alignment = { horizontal: 'center' };
-      
+
       ws.mergeCells(itdStartRow + 2 + index, 9, itdStartRow + 2 + index, 12);
       row.getCell(9).value = dealer.displayName || dealer.name;
-      
+
       row.getCell(13).value = itdDealer ? itdDealer.activeContracts : 0;
       row.getCell(13).numFmt = INTEGER;
       row.getCell(13).alignment = { horizontal: 'center' };
@@ -754,7 +739,7 @@ export class ExcelService {
       row.getCell(14).value = itdDealer ? itdDealer.claimCount : 0;
       row.getCell(14).numFmt = INTEGER;
       row.getCell(14).alignment = { horizontal: 'center' };
-      
+
       row.getCell(15).value = itdDealer ? itdDealer.claimsPaid : 0;
       row.getCell(15).numFmt = MONEY;
       row.getCell(15).alignment = { horizontal: 'center' };
@@ -766,19 +751,15 @@ export class ExcelService {
       row.getCell(17).value = itdDealer ? itdDealer.netAdmin : 0;
       row.getCell(17).numFmt = MONEY;
       row.getCell(17).alignment = { horizontal: 'center' };
-      
-      row.getCell(18).value = itdDealer ? itdDealer.paidLossRatio : 0;
+
+      row.getCell(18).value = itdDealer ? itdDealer.earnedLossRatio : 0;
       row.getCell(18).numFmt = PERCENT;
       row.getCell(18).alignment = { horizontal: 'center' };
-
-      row.getCell(19).value = itdDealer ? itdDealer.earnedLossRatio : 0;
-      row.getCell(19).numFmt = PERCENT;
-      row.getCell(19).alignment = { horizontal: 'center' };
     });
 
     if (worst.length > 0) {
       ws.addConditionalFormatting({
-        ref: `S${itdStartRow + 2}:S${itdStartRow + 1 + worst.length}`,
+        ref: `R${itdStartRow + 2}:R${itdStartRow + 1 + worst.length}`,
         rules: [dataBarRule(20)],
       });
     }
@@ -1045,7 +1026,7 @@ export class ExcelService {
       'Net Reserve',
       'Claims Paid',
       'Claim Count',
-      'Paid Loss Ratio',
+      'Earned Loss Ratio',
       'Cancellation Rate',
       'Loss Ratio Bar',
     ];
@@ -1061,9 +1042,9 @@ export class ExcelService {
         item.netReserve,
         item.claimsPaid,
         item.claimCount,
-        item.paidLossRatio,
+        item.earnedLossRatio,
         item.cancellationRate,
-        item.paidLossRatio,
+        item.earnedLossRatio,
       ];
       row.getCell(1).numFmt = 'mmm-yy';
       [2, 3, 4, 8].forEach((column) => {
@@ -1108,14 +1089,23 @@ export class ExcelService {
     model.contractTransactions.forEach((item) => {
       if (item.components) {
         Object.entries(item.components).forEach(([cat, comps]) => {
-          if (cat.toUpperCase().includes('COMMISSION') || cat.toUpperCase().includes('COMM')) return;
+          if (cat.toUpperCase().includes('COMMISSION') || cat.toUpperCase().includes('COMM'))
+            return;
           Object.keys(comps).forEach((c) => uniqueComponents.add(`${cat} - ${c}`));
         });
       }
     });
     const componentColumns = Array.from(uniqueComponents).sort();
 
-    const baseColumns = [
+    const debugDealers = process.env.DEBUG_DEALER_NAME
+      ? process.env.DEBUG_DEALER_NAME.split(',').map((s) => s.trim().toLowerCase())
+      : [];
+    const debugAgents = process.env.DEBUG_AGENT_NAME
+      ? process.env.DEBUG_AGENT_NAME.split(',').map((s) => s.trim().toLowerCase())
+      : [];
+    const hasDebug = debugDealers.length > 0 || debugAgents.length > 0;
+
+    const baseColumns: Partial<ExcelJS.Column>[] = [
       { width: 26 },
       { width: 14, numFmt: 'mm/dd/yyyy' },
       { width: 14, numFmt: 'mm/dd/yyyy' },
@@ -1129,11 +1119,19 @@ export class ExcelService {
       { width: 16 },
       { width: 12 },
       { width: 18 },
-      { width: 14, numFmt: MONEY },
-      { width: 14, numFmt: MONEY },
+      { width: 14, numFmt: MONEY }, // Admin
+      { width: 14, numFmt: MONEY }, // Reserve
       { width: 14, numFmt: MONEY }, // Premium
-      { width: 16, numFmt: MONEY },
+      { width: 16, numFmt: MONEY }, // Earned Reserve
     ];
+
+    if (hasDebug) {
+      baseColumns[13]!.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } }; // Admin (Light Green)
+      baseColumns[14]!.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } }; // Reserve (Light Green)
+      baseColumns[15]!.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC6E0B4' } }; // Premium (Medium Green)
+      baseColumns[16]!.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } }; // Earned Reserve (Light Green)
+    }
+
     const dynColumns = componentColumns.map(() => ({ width: 18, numFmt: MONEY }));
     ws.columns = [...baseColumns, ...dynColumns];
 
@@ -1161,18 +1159,12 @@ export class ExcelService {
     // SAMPLE SIZE REDUCTION
     // Writes 1 out of every 33 contracts (~3% chronological sample spread across all years).
     // This dramatically solves the Excel generation bottleneck while providing a huge representative dataset.
-    const debugDealers = process.env.DEBUG_DEALER_NAME 
-      ? process.env.DEBUG_DEALER_NAME.split(',').map(s => s.trim().toLowerCase()) 
-      : [];
-    const debugAgents = process.env.DEBUG_AGENT_NAME
-      ? process.env.DEBUG_AGENT_NAME.split(',').map(s => s.trim().toLowerCase()) 
-      : [];
-    const hasDebug = debugDealers.length > 0 || debugAgents.length > 0;
-
     let sampledCount = 0;
     model.contractTransactions.forEach((item, index) => {
       if (hasDebug) {
-        const dealerMatch = debugDealers.includes(item.dealerNumber.toLowerCase()) || debugDealers.includes((item.dealerName || item.dealer).toLowerCase());
+        const dealerMatch =
+          debugDealers.includes(item.dealerNumber.toLowerCase()) ||
+          debugDealers.includes((item.dealerName || item.dealer).toLowerCase());
         const agentMatch = debugAgents.includes(item.agent.toLowerCase());
         if (!dealerMatch && !agentMatch) return;
       } else {
@@ -1227,14 +1219,22 @@ export class ExcelService {
       'SANITIZED PAID CLAIM ACTIVITY',
       'Paid claims only; no customer or vehicle identifiers',
     );
-    ws.columns = [
+    const debugDealers = process.env.DEBUG_DEALER_NAME
+      ? process.env.DEBUG_DEALER_NAME.split(',').map((s) => s.trim().toLowerCase())
+      : [];
+    const debugAgents = process.env.DEBUG_AGENT_NAME
+      ? process.env.DEBUG_AGENT_NAME.split(',').map((s) => s.trim().toLowerCase())
+      : [];
+    const hasDebug = debugDealers.length > 0 || debugAgents.length > 0;
+
+    const baseColumns: Partial<ExcelJS.Column>[] = [
       { width: 26 },
       { width: 14, numFmt: 'mm/dd/yyyy' },
       { width: 14, numFmt: 'mm/dd/yyyy' },
       { width: 18 },
       { width: 18 },
       { width: 12 },
-      { width: 14, numFmt: MONEY },
+      { width: 14, numFmt: MONEY }, // Paid Amount
       { width: 24 },
       { width: 30 },
       { width: 25 },
@@ -1242,6 +1242,12 @@ export class ExcelService {
       { width: 40 },
       { width: 26 },
     ];
+
+    if (hasDebug) {
+      baseColumns[6]!.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } }; // Light Orange
+    }
+
+    ws.columns = baseColumns;
     ws.getRow(4).values = [
       'Source ID',
       'Snapshot Date',
@@ -1258,14 +1264,6 @@ export class ExcelService {
       'Payment Key',
     ];
     styleHeader(ws.getRow(4));
-
-    const debugDealers = process.env.DEBUG_DEALER_NAME 
-      ? process.env.DEBUG_DEALER_NAME.split(',').map(s => s.trim().toLowerCase()) 
-      : [];
-    const debugAgents = process.env.DEBUG_AGENT_NAME
-      ? process.env.DEBUG_AGENT_NAME.split(',').map(s => s.trim().toLowerCase()) 
-      : [];
-    const hasDebug = debugDealers.length > 0 || debugAgents.length > 0;
 
     let sampledCount = 0;
     model.claims.forEach((item, index) => {
@@ -1445,6 +1443,91 @@ export class ExcelService {
     ];
   }
 
+  private buildDebugMath(workbook: ExcelJS.Workbook, model: ReportModel): void {
+    const debugDealers = process.env.DEBUG_DEALER_NAME
+      ? process.env.DEBUG_DEALER_NAME.split(',').map((s) => s.trim().toLowerCase())
+      : [];
+    if (debugDealers.length === 0) return;
+
+    const ws = workbook.addWorksheet('Debug Math Breakdown');
+    configureWorksheet(ws);
+    title(
+      ws,
+      'DEBUG MATH: DEALER LOSS RATIO BREAKDOWN',
+      'Shows exact sums used to calculate Loss Ratios for debugged dealers',
+    );
+
+    ws.columns = [
+      { key: 'period', width: 25 },
+      { key: 'dealer', width: 45 },
+      { key: 'claimsPaid', width: 20 },
+      { key: 'earnedReserve', width: 20 },
+      { key: 'earnedLossRatio', width: 35 },
+    ];
+
+    ws.getRow(4).values = [
+      'Period',
+      'Dealer',
+      'Claims Paid (A)',
+      'Earned Reserve (B)',
+      'Earned Loss Ratio (A / B)',
+    ];
+    styleHeader(ws.getRow(4));
+
+    for (const dealerName of debugDealers) {
+      // Find ITD stats
+      const itdStats = model.itdDealers.find(
+        (d) =>
+          d.name.toLowerCase() === dealerName ||
+          (d.displayName || d.name).toLowerCase() === dealerName,
+      );
+      if (itdStats) {
+        ws.addRow({
+          period: 'Inception To Date',
+          dealer: itdStats.displayName || itdStats.name,
+          claimsPaid: itdStats.claimsPaid,
+          earnedReserve: itdStats.earnedReserve,
+          earnedLossRatio: itdStats.earnedLossRatio,
+        });
+      }
+
+      // Find Rolling 12 stats
+      const rollingStats = model.dealers.find(
+        (d) =>
+          d.name.toLowerCase() === dealerName ||
+          (d.displayName || d.name).toLowerCase() === dealerName,
+      );
+      if (rollingStats) {
+        ws.addRow({
+          period: 'Rolling 12 Months',
+          dealer: rollingStats.displayName || rollingStats.name,
+          claimsPaid: rollingStats.claimsPaid,
+          earnedReserve: rollingStats.earnedReserve,
+          earnedLossRatio: rollingStats.earnedLossRatio,
+        });
+      }
+      ws.addRow({}); // Spacer
+    }
+
+    // Format currency, percentages, and color code the buckets
+    ws.eachRow((row, rowNumber) => {
+      if (rowNumber > 4 && row.getCell('period').value) {
+        const claimsCell = row.getCell('claimsPaid');
+        const reserveCell = row.getCell('earnedReserve');
+        const ratioCell = row.getCell('earnedLossRatio');
+
+        claimsCell.numFmt = '"$"#,##0.00;[Red]-"$"#,##0.00';
+        claimsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } }; // Light Orange
+
+        reserveCell.numFmt = '"$"#,##0.00;[Red]-"$"#,##0.00';
+        reserveCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } }; // Light Green
+
+        ratioCell.numFmt = '0.00%';
+        ratioCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } }; // Light Blue
+      }
+    });
+  }
+
   private buildDefinitions(workbook: ExcelJS.Workbook): void {
     const ws = workbook.addWorksheet('Definitions');
     configureWorksheet(ws);
@@ -1455,11 +1538,18 @@ export class ExcelService {
       ['Gross Income', 'Add Net admin Net reserve tax ceeding full amount'],
       ['Premium', 'Calculated as Net Admin + Net Written Reserve.'],
       ['Underwriting Profit', 'Calculated as Premium - Claims Paid.'],
-      ['Paid Loss Ratio', 'Claims paid divided by Premium.'],
-      ['Earned Loss Ratio', 'Claims paid divided by (Earned Reserve + Net Admin).'],
+      ['Earned Loss Ratio', 'Claims paid divided by Earned Reserve.'],
+      [
+        'Earned Reserve',
+        'For active contracts, calculated dynamically using the earning schedule curve. For cancelled contracts, calculated as MAX(0, Written Reserve - Cancelled Reserve).',
+      ],
       [
         'Active Contracts',
-        'Distinct contracts whose latest snapshot has ContractStatus A and whose metadata.ActivationDate falls within the reporting period.',
+        'Distinct contracts whose latest snapshot has ContractStatus A and whose metadata.ActivationDate falls within the reporting period. Expired contracts (Status E) are explicitly excluded from this count.',
+      ],
+      [
+        'Expired Contracts',
+        'Contracts with ContractStatus E are treated mathematically as New Business (written contracts) that have naturally reached the end of their term. They are included in Contracts Written, Premium, and Earned Reserve calculations, but are not counted as Active.',
       ],
       [
         'Cancellations Processed',

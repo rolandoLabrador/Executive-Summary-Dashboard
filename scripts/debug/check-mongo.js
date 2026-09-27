@@ -12,7 +12,7 @@ function newExcludedComponent(upper) {
   ) {
     return true;
   }
-  
+
   if (
     ['CLIPFEE', 'PREMIUMTAX', 'CEDINGFEE', 'ADMIN'].includes(upper) ||
     upper.includes('PREMIUM TAX') ||
@@ -31,16 +31,16 @@ async function check() {
   await client.connect();
   const db = client.db('ContractDataDB');
   const cancelDb = client.db('CancelDataDB');
-  
+
   const cutoff = new Date('2026-09-01T00:00:00.000Z'); // Before Sep 1
-  
+
   const cursor = db.collection('ContractData').find({
-    "metadata.DealerNumber": "MS370",
-    "metadata.ActivationDate": { $lt: cutoff }
+    'metadata.DealerNumber': 'MS370',
+    'metadata.ActivationDate': { $lt: cutoff },
   });
-  
+
   let newWrittenSum = 0;
-  
+
   for await (const doc of cursor) {
     if (doc.WrittenAmount && doc.WrittenAmount.RESERVE) {
       for (const [key, val] of Object.entries(doc.WrittenAmount.RESERVE)) {
@@ -51,14 +51,14 @@ async function check() {
       }
     }
   }
-  
+
   const cursor2 = cancelDb.collection('CancelData').find({
-    "metadata.DealerNumber": "MS370",
-    "metadata.CancelDate": { $lt: cutoff }
+    'metadata.DealerNumber': 'MS370',
+    'metadata.CancelDate': { $lt: cutoff },
   });
-  
+
   let newCancelSum = 0;
-  
+
   for await (const doc of cursor2) {
     if (doc.CancelledAmount && doc.CancelledAmount.RESERVE) {
       for (const [key, val] of Object.entries(doc.CancelledAmount.RESERVE)) {
@@ -69,11 +69,10 @@ async function check() {
       }
     }
   }
-  
+
   console.log(`New Code Net Reserve (MS370) cutoff 2026-08-31: ${newWrittenSum - newCancelSum}`);
-  
+
   await client.close();
 }
 
 check().catch(console.error);
-

@@ -1,5 +1,3 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import {
   type DataQualityIssue,
   type DimensionMetric,
@@ -17,18 +15,6 @@ import {
   type UnknownDocument,
   type VehicleMakeMetric,
 } from '../models/report.types';
-
-let debugFileInitialized = false;
-function logExcludedDeductible(claimNumber: string, dealerName: string, amount: number, description: string) {
-  const outputDir = path.resolve('output');
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-  const debugFile = path.join(outputDir, 'excluded_deductibles.csv');
-  if (!debugFileInitialized) {
-    fs.writeFileSync(debugFile, 'Claim Number,Dealer Name,Amount,Description\n');
-    debugFileInitialized = true;
-  }
-  fs.appendFileSync(debugFile, `"${claimNumber}","${dealerName}",${amount},"${description}"\n`);
-}
 
 const UNMAPPED_LOSS_CODE = 'UNMAPPED';
 const UNAVAILABLE_LOSS_DESCRIPTION = 'Description unavailable';
@@ -50,7 +36,6 @@ const EMPTY_METRICS: MetricValues = {
   claimCount: 0,
   underwritingProfit: 0,
   grossIncome: 0,
-  paidLossRatio: null,
   earnedLossRatio: null,
   cancellationRate: null,
   adminPerContract: null,
@@ -135,6 +120,7 @@ function classify(value: unknown, status: unknown): TransactionType {
   if (normalized === 'upgrade') return 'Upgrade';
   if (text(status).toUpperCase() === 'C') return 'Cancellation';
   if (text(status).toUpperCase() === 'A') return 'NewBusiness';
+  if (text(status).toUpperCase() === 'E') return 'NewBusiness';
   return 'Unknown';
 }
 
@@ -187,10 +173,18 @@ function sumComponents(
   config: ReportConfig,
 ): number {
   const values = record(record(container)[category]);
-  return Object.entries(values).reduce(
+  let sum = Object.entries(values).reduce(
     (sum, [name, value]) => sum + (excludedComponent(name, category, config) ? 0 : number(value)),
     0,
   );
+
+  // Cross-category reclassifications
+  if (category === 'ADMIN') {
+    // Some systems place the main ADMIN fee inside the RESERVE bucket. We must capture it.
+    sum += number(record(record(container).RESERVE).ADMIN);
+  }
+
+  return sum;
 }
 
 function extractComponents(container: unknown): Record<string, Record<string, number>> {
@@ -249,10 +243,8 @@ function finalize(metrics: MetricValues): MetricValues {
   result.premium = result.netAdmin + result.netReserve;
   result.underwritingProfit = result.premium - result.claimsPaid;
   result.grossIncome = result.premium - result.claimsPaid;
-  result.paidLossRatio = result.premium > 0 ? result.claimsPaid / result.premium : null;
-  const earnedDenominator = result.earnedReserve + result.netAdmin;
   result.earnedLossRatio =
-    earnedDenominator > 0 ? result.claimsPaid / earnedDenominator : null;
+    result.earnedReserve > 0 ? result.claimsPaid / result.earnedReserve : null;
   result.cancellationRate =
     result.contractsWritten > 0 ? result.contractsCancelled / result.contractsWritten : null;
   result.adminPerContract =
@@ -526,18 +518,17 @@ function normalizeClaim(
         ? detailStatus
         : claimStatus || detailStatus;
   const activity = text(document.Activity);
-  const paid = number(document['Total Paid Amount']);
+  let paid = number(document['Total Paid Amount']);
   const claimDescription = text(document['Claim Description']);
 
-  // Exclude deductibles from negative claim amounts so they don't incorrectly reduce claimsPaid
+  // Ensure deductibles are negative so they reduce claimsPaid
   if (
-    paid < 0 &&
-    (claimDescription.toLowerCase() === 'perrepair' ||
-      claimDescription.toLowerCase() === 'disappearing')
+    claimDescription.toLowerCase() === 'perrepair' ||
+    claimDescription.toLowerCase() === 'disappearing'
   ) {
-    const claimNum = text(document['Claim Number']);
-    logExcludedDeductible(claimNum, dealerName, paid, claimDescription);
-    return null;
+    if (paid > 0) {
+      paid = -paid;
+    }
   }
 
   const activityDate = firstDate(document['Date Paid'], document['Claim Date Claim is Reported']);

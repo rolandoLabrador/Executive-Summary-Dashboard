@@ -93,7 +93,6 @@ export interface MetricValues {
   claimCount: number;
   underwritingProfit: number;
   grossIncome: number;
-  paidLossRatio: number | null;
   earnedLossRatio: number | null;
   cancellationRate: number | null;
   adminPerContract: number | null;
