@@ -1453,77 +1453,118 @@ export class ExcelService {
     configureWorksheet(ws);
     title(
       ws,
-      'DEBUG MATH: DEALER LOSS RATIO BREAKDOWN',
-      'Shows exact sums used to calculate Loss Ratios for debugged dealers',
+      'DEBUG MATH: COMPONENT & KPI BREAKDOWN',
+      'Shows exact component sums used to calculate Admin and Reserve for debugged dealers',
     );
 
     ws.columns = [
-      { key: 'period', width: 25 },
       { key: 'dealer', width: 45 },
-      { key: 'claimsPaid', width: 20 },
-      { key: 'earnedReserve', width: 20 },
-      { key: 'earnedLossRatio', width: 35 },
+      { key: 'category', width: 20 },
+      { key: 'component', width: 40 },
+      { key: 'written', width: 20 },
+      { key: 'cancelled', width: 20 },
+      { key: 'net', width: 20 },
     ];
 
     ws.getRow(4).values = [
-      'Period',
       'Dealer',
-      'Claims Paid (A)',
-      'Earned Reserve (B)',
-      'Earned Loss Ratio (A / B)',
+      'Category',
+      'Component',
+      'Written Amount',
+      'Cancelled Amount',
+      'Net Amount',
     ];
     styleHeader(ws.getRow(4));
 
+    // Calculate components per dealer
     for (const dealerName of debugDealers) {
-      // Find ITD stats
-      const itdStats = model.itdDealers.find(
-        (d) =>
-          d.name.toLowerCase() === dealerName ||
-          (d.displayName || d.name).toLowerCase() === dealerName,
+      // Find ITD transactions for this dealer
+      const dealerTx = model.contractTransactions.filter(
+        (t) =>
+          t.dealerName.toLowerCase() === dealerName ||
+          t.dealerNumber.toLowerCase() === dealerName
       );
-      if (itdStats) {
-        ws.addRow({
-          period: 'Inception To Date',
-          dealer: itdStats.displayName || itdStats.name,
-          claimsPaid: itdStats.claimsPaid,
-          earnedReserve: itdStats.earnedReserve,
-          earnedLossRatio: itdStats.earnedLossRatio,
-        });
-      }
 
-      // Find Rolling 12 stats
-      const rollingStats = model.dealers.find(
-        (d) =>
-          d.name.toLowerCase() === dealerName ||
-          (d.displayName || d.name).toLowerCase() === dealerName,
-      );
-      if (rollingStats) {
-        ws.addRow({
-          period: 'Rolling 12 Months',
-          dealer: rollingStats.displayName || rollingStats.name,
-          claimsPaid: rollingStats.claimsPaid,
-          earnedReserve: rollingStats.earnedReserve,
-          earnedLossRatio: rollingStats.earnedLossRatio,
+      if (dealerTx.length === 0) continue;
+
+      const sums: Record<string, { written: number; cancelled: number; net: number }> = {};
+
+      dealerTx.forEach((t) => {
+        if (!t.components) return;
+        
+        const isCancel = t.transactionType === 'Cancellation';
+        
+        ['RESERVE', 'ADMIN'].forEach(cat => {
+          if (!t.components[cat]) return;
+          
+          Object.entries(t.components[cat]).forEach(([comp, amt]) => {
+            const key = `${cat}.${comp}`;
+            if (!sums[key]) sums[key] = { written: 0, cancelled: 0, net: 0 };
+            
+            if (isCancel) {
+              sums[key].cancelled -= Math.abs(amt);
+              sums[key].net -= Math.abs(amt);
+            } else {
+              sums[key].written += amt;
+              sums[key].net += amt;
+            }
+          });
         });
-      }
-      ws.addRow({}); // Spacer
+      });
+
+      let startRow = ws.lastRow ? ws.lastRow.number + 2 : 5;
+      
+      const realDealerName = dealerTx[0].dealerName || dealerName;
+      
+      // Print RESERVE components
+      let reserveNetTotal = 0;
+      Object.keys(sums).filter(k => k.startsWith('RESERVE.')).sort().forEach(k => {
+        if (sums[k].net === 0 && sums[k].written === 0) return;
+        reserveNetTotal += sums[k].net;
+        ws.addRow({
+          dealer: realDealerName,
+          category: 'RESERVE',
+          component: k.replace('RESERVE.', ''),
+          written: sums[k].written,
+          cancelled: sums[k].cancelled,
+          net: sums[k].net
+        });
+      });
+      
+      const reserveTotalRow = ws.addRow({
+        dealer: '', category: '', component: 'TOTAL NET RESERVE:', net: reserveNetTotal
+      });
+      reserveTotalRow.font = { bold: true };
+      ws.addRow({});
+
+      // Print ADMIN components
+      let adminNetTotal = 0;
+      Object.keys(sums).filter(k => k.startsWith('ADMIN.')).sort().forEach(k => {
+        if (sums[k].net === 0 && sums[k].written === 0) return;
+        adminNetTotal += sums[k].net;
+        ws.addRow({
+          dealer: realDealerName,
+          category: 'ADMIN',
+          component: k.replace('ADMIN.', ''),
+          written: sums[k].written,
+          cancelled: sums[k].cancelled,
+          net: sums[k].net
+        });
+      });
+
+      const adminTotalRow = ws.addRow({
+        dealer: '', category: '', component: 'TOTAL NET ADMIN:', net: adminNetTotal
+      });
+      adminTotalRow.font = { bold: true };
+      ws.addRow({});
     }
 
-    // Format currency, percentages, and color code the buckets
+    // Format currency
     ws.eachRow((row, rowNumber) => {
-      if (rowNumber > 4 && row.getCell('period').value) {
-        const claimsCell = row.getCell('claimsPaid');
-        const reserveCell = row.getCell('earnedReserve');
-        const ratioCell = row.getCell('earnedLossRatio');
-
-        claimsCell.numFmt = '"$"#,##0.00;[Red]-"$"#,##0.00';
-        claimsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } }; // Light Orange
-
-        reserveCell.numFmt = '"$"#,##0.00;[Red]-"$"#,##0.00';
-        reserveCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } }; // Light Green
-
-        ratioCell.numFmt = '0.00%';
-        ratioCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } }; // Light Blue
+      if (rowNumber > 4) {
+        row.getCell('written').numFmt = '"$"#,##0.00;[Red]-"$"#,##0.00';
+        row.getCell('cancelled').numFmt = '"$"#,##0.00;[Red]-"$"#,##0.00';
+        row.getCell('net').numFmt = '"$"#,##0.00;[Red]-"$"#,##0.00';
       }
     });
   }
