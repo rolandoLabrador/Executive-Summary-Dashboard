@@ -85,7 +85,7 @@ async function main(): Promise<void> {
     logMemory('4. After ExcelService.generateFullReport (Workbook in RAM)');
 
     await mkdir(reportConfig.outputDirectory, { recursive: true });
-    const fileName = `${reportConfig.companyName.replace(/[^a-z0-9]+/gi, '_')}_Executive_Report_${fileDate(model.asOfDate)}.xlsx`;
+    const fileName = `${reportConfig.companyName.replace(/[^a-z0-9]+/gi, '_')}_Executive_Report_${fileDate(model.asOfDate)}_v6.xlsx`;
     const outputPath = path.join(reportConfig.outputDirectory, fileName);
     await writeFile(outputPath, workbook);
     logMemory('5. After Writing Excel to Disk');

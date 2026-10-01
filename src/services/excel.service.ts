@@ -630,8 +630,10 @@ export class ExcelService {
 
     headerRow.getCell(8).value = 'Rank';
 
-    ws.mergeCells(startRow + 1, 9, startRow + 1, 12);
+    ws.mergeCells(startRow + 1, 9, startRow + 1, 11);
     headerRow.getCell(9).value = 'Dealer';
+
+    headerRow.getCell(12).value = 'Agent';
 
     headerRow.getCell(13).value = 'Active Contracts (Last 12M)';
     headerRow.getCell(13).note =
@@ -642,7 +644,7 @@ export class ExcelService {
     headerRow.getCell(17).value = 'Net Admin';
     headerRow.getCell(18).value = 'Earned Loss Ratio';
 
-    [8, 9, 13, 14, 15, 16, 17, 18].forEach((col) => {
+    [8, 9, 12, 13, 14, 15, 16, 17, 18].forEach((col) => {
       const cell = headerRow.getCell(col);
       cell.font = { bold: true, color: { argb: COLORS.white } };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
@@ -655,8 +657,11 @@ export class ExcelService {
       row.getCell(8).value = index + 1;
       row.getCell(8).alignment = { horizontal: 'center' };
 
-      ws.mergeCells(startRow + 2 + index, 9, startRow + 2 + index, 12);
+      ws.mergeCells(startRow + 2 + index, 9, startRow + 2 + index, 11);
       row.getCell(9).value = dealer.displayName || dealer.name;
+
+      row.getCell(12).value = (dealer.relatedAgents || []).join(', ');
+      row.getCell(12).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
       row.getCell(13).value = dealer.activeContracts;
       row.getCell(13).numFmt = INTEGER;
@@ -703,8 +708,10 @@ export class ExcelService {
 
     headerRowITD.getCell(8).value = 'Rank';
 
-    ws.mergeCells(itdStartRow + 1, 9, itdStartRow + 1, 12);
+    ws.mergeCells(itdStartRow + 1, 9, itdStartRow + 1, 11);
     headerRowITD.getCell(9).value = 'Dealer';
+
+    headerRowITD.getCell(12).value = 'Agent';
 
     headerRowITD.getCell(13).value = 'Active Contracts';
     headerRowITD.getCell(14).value = 'Claim Count';
@@ -713,7 +720,7 @@ export class ExcelService {
     headerRowITD.getCell(17).value = 'Net Admin';
     headerRowITD.getCell(18).value = 'Earned Loss Ratio';
 
-    [8, 9, 13, 14, 15, 16, 17, 18].forEach((col) => {
+    [8, 9, 12, 13, 14, 15, 16, 17, 18].forEach((col) => {
       const cell = headerRowITD.getCell(col);
       cell.font = { bold: true, color: { argb: COLORS.white } };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
@@ -729,8 +736,11 @@ export class ExcelService {
       row.getCell(8).value = index + 1;
       row.getCell(8).alignment = { horizontal: 'center' };
 
-      ws.mergeCells(itdStartRow + 2 + index, 9, itdStartRow + 2 + index, 12);
+      ws.mergeCells(itdStartRow + 2 + index, 9, itdStartRow + 2 + index, 11);
       row.getCell(9).value = dealer.displayName || dealer.name;
+
+      row.getCell(12).value = (dealer.relatedAgents || []).join(', ');
+      row.getCell(12).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
       row.getCell(13).value = itdDealer ? itdDealer.activeContracts : 0;
       row.getCell(13).numFmt = INTEGER;
@@ -1514,20 +1524,21 @@ export class ExcelService {
 
       let startRow = ws.lastRow ? ws.lastRow.number + 2 : 5;
       
-      const realDealerName = dealerTx[0].dealerName || dealerName;
+      const realDealerName = dealerTx[0]?.dealerName || dealerName;
       
       // Print RESERVE components
       let reserveNetTotal = 0;
       Object.keys(sums).filter(k => k.startsWith('RESERVE.')).sort().forEach(k => {
-        if (sums[k].net === 0 && sums[k].written === 0) return;
-        reserveNetTotal += sums[k].net;
+        const sum = sums[k];
+        if (!sum || (sum.net === 0 && sum.written === 0)) return;
+        reserveNetTotal += sum.net;
         ws.addRow({
           dealer: realDealerName,
           category: 'RESERVE',
           component: k.replace('RESERVE.', ''),
-          written: sums[k].written,
-          cancelled: sums[k].cancelled,
-          net: sums[k].net
+          written: sum.written,
+          cancelled: sum.cancelled,
+          net: sum.net
         });
       });
       
@@ -1540,15 +1551,16 @@ export class ExcelService {
       // Print ADMIN components
       let adminNetTotal = 0;
       Object.keys(sums).filter(k => k.startsWith('ADMIN.')).sort().forEach(k => {
-        if (sums[k].net === 0 && sums[k].written === 0) return;
-        adminNetTotal += sums[k].net;
+        const sum = sums[k];
+        if (!sum || (sum.net === 0 && sum.written === 0)) return;
+        adminNetTotal += sum.net;
         ws.addRow({
           dealer: realDealerName,
           category: 'ADMIN',
           component: k.replace('ADMIN.', ''),
-          written: sums[k].written,
-          cancelled: sums[k].cancelled,
-          net: sums[k].net
+          written: sum.written,
+          cancelled: sum.cancelled,
+          net: sum.net
         });
       });
 

@@ -180,27 +180,29 @@ function sumComponents(
 
   // Cross-category reclassifications
   if (category === 'ADMIN') {
-    // Some systems place the main ADMIN fee inside the RESERVE bucket. We must capture it.
+    // RESERVE.ADMIN is part of the Admin bucket, not the Reserve bucket
     sum += number(record(record(container).RESERVE).ADMIN);
   }
 
   return sum;
 }
 
-function extractComponents(container: unknown): Record<string, Record<string, number>> {
-  const result: Record<string, Record<string, number>> = {};
+function extractComponents(container: unknown, config?: ReportConfig): Record<string, Record<string, number>> {
+  const result: Record<string, Record<string, number>> = { ADMIN: {}, RESERVE: {} };
   const root = record(container);
+  
+  // Create a default config if none is provided, allowing manual runs of the script
+  const safeConfig = config || ({ excludedComponentFilters: [] } as unknown as ReportConfig);
+  
   for (const [category, values] of Object.entries(root)) {
     const upperCat = category.toUpperCase();
     if (upperCat === 'ADMIN' || upperCat === 'RESERVE') {
       if (typeof values === 'object' && values !== null) {
-        result[category] = {};
         for (const [name, value] of Object.entries(record(values))) {
-          const upperName = name.trim().toUpperCase();
-          if (upperName.includes('COMMISSION') || upperName.includes('COMM')) {
+          if (excludedComponent(name, upperCat as 'ADMIN' | 'RESERVE', safeConfig)) {
             continue;
           }
-          result[category][name] = number(value);
+          result[upperCat]![name] = number(value);
         }
       }
     }
@@ -443,7 +445,7 @@ function normalizeContract(
     earnedReserveAmount: 0,
     effectiveDate,
     earningSchedule: Object.keys(earningSchedule).length > 0 ? earningSchedule : null,
-    components: extractComponents(amountContainer),
+    components: extractComponents(amountContainer, config),
   };
 }
 
@@ -497,7 +499,7 @@ function normalizeWrittenReferenceFromCancellation(
     earnedReserveAmount: 0,
     effectiveDate,
     earningSchedule: Object.keys(earningSchedule).length > 0 ? earningSchedule : null,
-    components: extractComponents(document.WrittenAmount),
+    components: extractComponents(document.WrittenAmount, config),
   };
 }
 
