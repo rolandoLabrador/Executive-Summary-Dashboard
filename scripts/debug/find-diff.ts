@@ -3,13 +3,21 @@ import { loadMongoUri } from '../../src/config';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
-function getAmount(container: any, category: string, sub: string): number {
-  if (!container || !container[category] || !container[category][sub]) return 0;
-  let val = container[category][sub];
+function getAmount(container: unknown, category: string, sub: string): number {
+  if (
+    !container ||
+    typeof container !== 'object' ||
+    !(category in container)
+  ) return 0;
+  
+  const catObj = (container as Record<string, unknown>)[category];
+  if (!catObj || typeof catObj !== 'object' || !(sub in catObj)) return 0;
+  
+  let val = (catObj as Record<string, unknown>)[sub];
   if (typeof val === 'object' && val !== null) {
     // Check if it's a BSON type
-    if (val.value !== undefined) return Number(val.value); // Some BSON Int32 parsers
-    val = val.toString();
+    if ('value' in val && val.value !== undefined) return Number(val.value); // Some BSON Int32 parsers
+    val = (val as { toString(): string }).toString();
   }
   return Number(val) || 0;
 }
@@ -70,6 +78,7 @@ async function main() {
   }
 
   console.log(`\nManual Net Admin: ${manualAdmin}`);
+  console.log(`Total Admin dropped due to missing date: ${missingDateAdmin}`);
   
   await client.close();
 }

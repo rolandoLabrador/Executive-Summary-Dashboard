@@ -1,0 +1,204 @@
+﻿
+> function buildThreeTierDimensionSheet(
+    workbook: ExcelJS.Workbook,
+    name: string,
+    heading: string,
+    itdRows: DimensionMetric[],
+    rollingRows: DimensionMetric[],
+    monthlyRows: DimensionMetric[],
+    config: ReportConfig,
+    itdStart: Date,
+    rollingStart: Date,
+    currentStart: Date,
+    currentEnd: Date,
+    limit?: number,
+  ): void {
+    const ws = workbook.addWorksheet(name);
+    configureWorksheet(ws);
+    const isDealer = name === 'Dealer Dashboard';
+    const isAgent = name === 'Agent Dashboard';
+    const maxCols = isDealer || isAgent ? 19 : 17;
+    title(
+      ws,
+      heading,
+      `Inception to Date, Rolling 12-Month & Latest Month Results | Through ${formatDate(currentEnd)}`,
+      maxCols,
+    );
+  
+    const writeTable = (
+      startRow: number,
+      sectionHeading: string,
+      rows: DimensionMetric[],
+    ): number => {
+      ws.mergeCells(startRow, 1, startRow, maxCols);
+      const headingCell = ws.getCell(startRow, 1);
+      headingCell.value = sectionHeading;
+      headingCell.font = { bold: true, size: 12, color: { argb: COLORS.navy } };
+  
+      const selected = limit ? rows.slice(0, limit) : rows;
+      const headers = [
+        'Rank',
+        isDealer ? 'Dealer Number' : name.replace(' Dashboard', ''),
+        ...(isDealer ? ['Dealer Name', 'Agents'] : isAgent ? ['Agent Name', 'Dealers'] : []),
+        'Written',
+        'Active Contracts',
+        'Gross Income',
+        'Cancellations Processed',
+        'Net Admin',
+        'Avg Admin / Contract',
+        'Net Reserve',
+        'Premium',
+        'Earned Reserve',
+        'Claims Paid',
+        'Underwriting Profit',
+        'Claim Count',
+        'Earned Loss Ratio',
+        'Cancellation Rate',
+        'Loss Ratio Bar',
+      ];
+      ws.getRow(startRow + 1).values = headers;
+      styleHeaderRange(ws, startRow + 1, 1, maxCols);
+  
+      selected.forEach((item, index) => {
+        const row = ws.getRow(startRow + 2 + index);
+        row.values = [
+          index + 1,
+          item.name,
+          ...(isDealer
+            ? [item.displayName || 'Name unavailable', item.relatedAgents?.join(', ') || 'Unassigned']
+            : isAgent
+              ? [item.name, item.relatedDealers?.join(', ') || 'Unassigned']
+              : []),
+          item.contractsWritten,
+          item.activeContracts,
+          item.grossIncome,
+          item.contractsCancelled,
+          item.netAdmin,
+          item.adminPerContract,
+          item.netReserve,
+          item.premium,
+          item.earnedReserve,
+          item.claimsPaid,
+          item.underwritingProfit,
+          item.claimCount,
+          item.earnedLossRatio,
+          item.cancellationRate,
+          item.earnedLossRatio,
+        ];
+        const offset = isDealer || isAgent ? 2 : 0;
+        [3, 4, 6, 14].forEach((column) => {
+          row.getCell(column + offset).numFmt = INTEGER;
+        });
+        [5, 7, 8, 9, 10, 11, 12, 13].forEach((column) => {
+          row.getCell(column + offset).numFmt = MONEY;
+        });
+        [15, 16, 17].forEach((column) => {
+          row.getCell(column + offset).numFmt = PERCENT;
+        });
+      });
+  
+      if (selected.length > 0) {
+        const firstDataRow = startRow + 2;
+        const lastDataRow = startRow + 1 + selected.length;
+        const barCol = isDealer || isAgent ? 'S' : 'Q';
+        const earnedRatioCol = isDealer || isAgent ? 'Q' : 'O';
+  
+        ws.addConditionalFormatting({
+          ref: `${barCol}${firstDataRow}:${barCol}${lastDataRow}`,
+          rules: [dataBarRule(1)],
+        });
+  
+        const ratioRules: ExcelJS.ConditionalFormattingRule[] = [
+          {
+            type: 'cellIs',
+            priority: 2,
+            operator: 'greaterThan',
+            formulae: [config.highLossRatio],
+            style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F4CCCC' } } },
+          },
+          {
+            type: 'cellIs',
+            priority: 3,
+            operator: 'between',
+            formulae: [config.warningLossRatio, config.highLossRatio],
+            style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2CC' } } },
+          },
+        ];
+  
+        ws.addConditionalFormatting({
+          ref: `${earnedRatioCol}${firstDataRow}:${earnedRatioCol}${lastDataRow}`,
+          rules: ratioRules,
+        });
+      }
+  
+      return startRow + selected.length + 4;
+    };
+  
+    let nextRow = writeTable(
+      4,
+      `INCEPTION TO DATE RESULTS (${formatDateRange(itdStart, currentEnd)})`,
+      itdRows,
+    );
+    nextRow = writeTable(
+      nextRow,
+      `ROLLING 12-MONTH RESULTS (${formatDateRange(rollingStart, currentEnd)})`,
+      rollingRows,
+    );
+    writeTable(
+      nextRow,
+      `YEAR TO DATE RESULTS (${formatDateRange(currentStart, currentEnd)})`,
+      monthlyRows,
+    );
+  
+    ws.columns = [
+      { width: 8 },
+      { width: isDealer ? 16 : 30 },
+      ...(isDealer ? [{ width: 34 }, { width: 36 }] : []),
+      { width: 12 }, // Written
+      { width: 12 }, // Active Contracts
+      { width: 16 }, // Gross Income
+      { width: 14 }, // Cancellations Processed
+      { width: 16 }, // Net Admin
+      { width: 16 }, // Avg Admin / Contract
+      { width: 16 }, // Net Reserve
+      { width: 16 }, // Premium
+      { width: 16 }, // Earned Reserve
+      { width: 16 }, // Claims Paid
+      { width: 16 }, // Underwriting Profit
+      { width: 12 }, // Claim Count
+      { width: 16 }, // Earned Loss Ratio
+      { width: 17 }, // Cancellation Rate
+      { width: 28 }, // Loss Ratio Bar
+    ];
+  }
+  
+  export class ExcelService {
+    constructor(private readonly config: ReportConfig) {}
+  
+    async generateFullReport(model: ReportModel): Promise<Buffer> {
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'OmniShield Reporting Engine';
+      workbook.company = this.config.companyName;
+      workbook.created = model.generatedAt;
+      workbook.modified = model.generatedAt;
+      workbook.calcProperties.fullCalcOnLoad = true;
+  
+      // ----- NEW ENTERPRISE REGISTRY PATTERN -----
+      const registry = new TabRegistry();
+      // Register the newly decoupled Executive Dashboard
+      registry.register(new ExecutiveDashboardTab());
+  
+      const execConfig: any = dashboardConfig.activeTabs['tab_executive_summary'];
+      if (execConfig === true || execConfig?.enabled === true) {
+        const execTab = registry.getTab('tab_executive_summary');
+        if (execTab) execTab.render(workbook, model, this.config);
+      }
+      // --------------------------------------------
+  
+      // Legacy method calls (to be migrated next to individual classes)
+      buildThreeTierDimensionSheet(
+        workbook,
+        'Dealer Dashboard',
+        'DEALER PERFORMANCE DASHBOARD',
+
+

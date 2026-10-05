@@ -1,0 +1,47 @@
+{
+  "activeTabs": {
+    "tab_executive_summary": {
+      "enabled": true,
+      "tables": {
+        "currentMonthComparison": true,
+        "yearToDateComparison": true,
+        "rolling12Comparison": true,
+        "priorYearSnapshot": true,
+        "trend12Month": true,
+        "worstDealers": true,
+        "inceptionToDate": true
+      }
+    },
+    "tab_dealer_dashboard": {
+      "enabled": true,
+      "tables": {
+        "inceptionToDate": true,
+        "rolling12Month": true,
+        "yearToDate": true
+      }
+    },
+    "tab_agent_dashboard": {
+      "enabled": true,
+      "tables": {
+        "inceptionToDate": true,
+        "rolling12Month": true,
+        "yearToDate": true
+      }
+    },
+    "tab_product_dashboard": {
+      "enabled": true,
+      "tables": {
+        "inceptionToDate": true,
+        "rolling12Month": true,
+        "yearToDate": true
+      }
+    },
+    "tab_loss_code": false,
+    "tab_monthly": false,
+    "tab_contract_detail": false,
+    "tab_claim_detail": false,
+    "tab_data_quality": false,
+    "tab_debug_math": false,
+    "tab_definitions": false
+  }
+}

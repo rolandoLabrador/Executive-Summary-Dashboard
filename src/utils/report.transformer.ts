@@ -159,7 +159,10 @@ function excludedComponent(
 
   // Explicit exclusions for ADMIN calculation
   if (category === 'ADMIN') {
-    if (['ROADSIDEADMIN', 'LOANPMT'].includes(upper)) {
+    if (
+      ['ROADSIDEADMIN', 'LOANPMT', 'OTHERCOMM', 'PREMTAX', 'AGENTNCB'].includes(upper) ||
+      upper.includes('ROADSIDE AKMC')
+    ) {
       return true;
     }
   }
@@ -167,21 +170,37 @@ function excludedComponent(
   return false;
 }
 
+function getCategoryEntries(container: unknown, targetCategory: 'ADMIN' | 'RESERVE'): Array<[string, unknown]> {
+  const root = record(container);
+  const targetUpper = targetCategory.toUpperCase();
+  for (const [catName, values] of Object.entries(root)) {
+    if (catName.trim().toUpperCase() === targetUpper) {
+      return Object.entries(record(values));
+    }
+  }
+  return [];
+}
+
 function sumComponents(
   container: unknown,
   category: 'ADMIN' | 'RESERVE',
   config: ReportConfig,
 ): number {
-  const values = record(record(container)[category]);
-  let sum = Object.entries(values).reduce(
-    (sum, [name, value]) => sum + (excludedComponent(name, category, config) ? 0 : number(value)),
+  const entries = getCategoryEntries(container, category);
+  let sum = entries.reduce(
+    (acc, [name, value]) => acc + (excludedComponent(name, category, config) ? 0 : number(value)),
     0,
   );
 
   // Cross-category reclassifications
   if (category === 'ADMIN') {
     // RESERVE.ADMIN is part of the Admin bucket, not the Reserve bucket
-    sum += number(record(record(container).RESERVE).ADMIN);
+    const reserveEntries = getCategoryEntries(container, 'RESERVE');
+    for (const [name, val] of reserveEntries) {
+      if (name.trim().toUpperCase() === 'ADMIN') {
+        sum += number(val);
+      }
+    }
   }
 
   return sum;
@@ -251,6 +270,13 @@ function finalize(metrics: MetricValues): MetricValues {
     result.contractsWritten > 0 ? result.contractsCancelled / result.contractsWritten : null;
   result.adminPerContract =
     result.activeContracts > 0 ? result.netAdmin / result.activeContracts : null;
+    
+  // RULE 1: Flag any Avg Admin / Contract less than $20.00
+  if (result.adminPerContract !== null && result.adminPerContract < 20) {
+    // TODO: Implement SendGrid email warning here for possible mistakes
+    // e.g., await emailService.sendWarning({ type: 'LOW_ADMIN_FEE', value: result.adminPerContract });
+  }
+  
   return result;
 }
 
