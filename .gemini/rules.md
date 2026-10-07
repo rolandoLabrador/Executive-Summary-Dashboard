@@ -14,3 +14,5 @@
   - **Defensive & Type-Safe Code**: Use TypeScript types, nullish coalescing (`??`), and bounded ranges to prevent runtime crashes and style bleeding.
   - **Dynamic Layouts**: Avoid hardcoded magic numbers; calculate coordinates based on dynamic data bounds.
   - **Automated Verification**: Always verify changes against the test suite (`npm test`) and build system (`npm run build`).
+
+  No any type TOP of the top Typsecript 

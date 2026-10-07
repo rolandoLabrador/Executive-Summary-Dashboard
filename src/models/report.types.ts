@@ -42,6 +42,7 @@ export interface NormalizedContractTransaction {
   transactionType: TransactionType;
   activityDate: Date;
   agent: string;
+  agentName?: string;
   dealer: string;
   dealerNumber: string;
   dealerName: string;
@@ -51,6 +52,7 @@ export interface NormalizedContractTransaction {
   riskEntity: string;
   adminAmount: number;
   reserveAmount: number;
+  grossIncomeAmount: number;
   earnedReserveAmount: number;
   effectiveDate: Date | null;
   earningSchedule: Record<number, number> | null;
@@ -67,6 +69,7 @@ export interface NormalizedClaim {
   status: string;
   paidAmount: number;
   agent: string;
+  agentName?: string;
   dealer: string;
   dealerName: string;
   product: string;
@@ -87,11 +90,13 @@ export interface MetricValues {
   reserveWritten: number;
   reserveCancelled: number;
   netReserve: number;
-  premium: number;
+
   earnedReserve: number;
   claimsPaid: number;
   claimCount: number;
   underwritingProfit: number;
+  grossIncomeWritten: number;
+  grossIncomeCancelled: number;
   grossIncome: number;
   earnedLossRatio: number | null;
   cancellationRate: number | null;

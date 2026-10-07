@@ -30,11 +30,12 @@ const EMPTY_METRICS: MetricValues = {
   reserveWritten: 0,
   reserveCancelled: 0,
   netReserve: 0,
-  premium: 0,
   earnedReserve: 0,
   claimsPaid: 0,
   claimCount: 0,
   underwritingProfit: 0,
+  grossIncomeWritten: 0,
+  grossIncomeCancelled: 0,
   grossIncome: 0,
   earnedLossRatio: null,
   cancellationRate: null,
@@ -124,7 +125,7 @@ function classify(value: unknown, status: unknown): TransactionType {
   return 'Unknown';
 }
 
-function excludedComponent(
+export function excludedComponent(
   name: string,
   category: 'ADMIN' | 'RESERVE',
   config: ReportConfig,
@@ -147,11 +148,12 @@ function excludedComponent(
   // Explicit exclusions for RESERVE calculation
   if (category === 'RESERVE') {
     if (
-      ['CLIPFEE', 'PREMIUMTAX', 'CEDINGFEE', 'ADMIN'].includes(upper) ||
+      ['CLIPFEE', 'PREMIUMTAX', 'CEDINGFEE', 'ADMIN', 'SLUSH'].includes(upper) ||
       upper.includes('PREMIUM TAX') ||
       upper.includes('CEEDING') ||
       upper.includes('CEDING') ||
-      upper.includes('CLIP FEE')
+      upper.includes('CLIP FEE') ||
+      upper.includes('OEM TRANSPORT')
     ) {
       return true;
     }
@@ -206,23 +208,59 @@ function sumComponents(
   return sum;
 }
 
-function extractComponents(container: unknown, config?: ReportConfig): Record<string, Record<string, number>> {
-  const result: Record<string, Record<string, number>> = { ADMIN: {}, RESERVE: {} };
+export function isGrossIncomeExcluded(category: string, name: string, config: ReportConfig): boolean {
+  const upperCat = category.trim().toUpperCase();
+  if (
+    upperCat.includes('COMMISSION') ||
+    upperCat.includes('COMM') ||
+    upperCat.includes('DEALER') ||
+    upperCat.includes('DLR') ||
+    upperCat.includes('F&I') ||
+    upperCat.includes('PACK')
+  ) {
+    return true;
+  }
+  const upper = name.trim().toUpperCase();
+  if (
+    config.excludedComponentCodes.has(upper) ||
+    upper.includes('DEALER') ||
+    upper.includes('DLR') ||
+    upper.includes('COMMISSION') ||
+    upper.includes('COMM') ||
+    upper.includes('F&I') ||
+    upper.includes('PACK')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function sumGrossIncomeComponents(container: unknown, config: ReportConfig): number {
+  let sum = 0;
   const root = record(container);
   
-  // Create a default config if none is provided, allowing manual runs of the script
-  const safeConfig = config || ({ excludedComponentFilters: [] } as unknown as ReportConfig);
+  for (const [category, values] of Object.entries(root)) {
+    if (typeof values === 'object' && values !== null) {
+      for (const [name, value] of Object.entries(record(values))) {
+        if (!isGrossIncomeExcluded(category, name, config)) {
+          sum += number(value);
+        }
+      }
+    }
+  }
+  return sum;
+}
+
+function extractComponents(container: unknown): Record<string, Record<string, number>> {
+  const result: Record<string, Record<string, number>> = {};
+  const root = record(container);
   
   for (const [category, values] of Object.entries(root)) {
     const upperCat = category.toUpperCase();
-    if (upperCat === 'ADMIN' || upperCat === 'RESERVE') {
-      if (typeof values === 'object' && values !== null) {
-        for (const [name, value] of Object.entries(record(values))) {
-          if (excludedComponent(name, upperCat as 'ADMIN' | 'RESERVE', safeConfig)) {
-            continue;
-          }
-          result[upperCat]![name] = number(value);
-        }
+    if (typeof values === 'object' && values !== null) {
+      if (!result[upperCat]) result[upperCat] = {};
+      for (const [name, value] of Object.entries(record(values))) {
+        result[upperCat]![name] = number(value);
       }
     }
   }
@@ -259,11 +297,11 @@ function periodKey(value: Date): string {
 function finalize(metrics: MetricValues): MetricValues {
   const result = { ...metrics };
   result.netContracts = result.contractsWritten - result.contractsCancelled;
-  result.netAdmin = result.adminWritten - result.adminCancelled;
+  // result.netAdmin is now calculated in aggregate() for active contracts only
   result.netReserve = result.reserveWritten - result.reserveCancelled;
-  result.premium = result.netAdmin + result.netReserve;
-  result.underwritingProfit = result.premium - result.claimsPaid;
-  result.grossIncome = result.premium - result.claimsPaid;
+  // Premium removed
+  result.underwritingProfit = result.earnedReserve - result.claimsPaid;
+  result.grossIncome = result.grossIncomeWritten - result.grossIncomeCancelled;
   result.earnedLossRatio =
     result.earnedReserve > 0 ? result.claimsPaid / result.earnedReserve : null;
   result.cancellationRate =
@@ -307,6 +345,8 @@ function aggregate(
     {
       written: number;
       cancelled: number;
+      adminWritten: number;
+      adminCancelled: number;
       effectiveDate: Date | null;
       schedule: Record<number, number> | null;
     }
@@ -317,7 +357,7 @@ function aggregate(
 
     let state = contractStates.get(transaction.contractNumber);
     if (!state) {
-      state = { written: 0, cancelled: 0, effectiveDate: null, schedule: null };
+      state = { written: 0, cancelled: 0, adminWritten: 0, adminCancelled: 0, effectiveDate: null, schedule: null };
       contractStates.set(transaction.contractNumber, state);
     }
 
@@ -328,20 +368,24 @@ function aggregate(
       result.contractsWritten += 1;
       result.adminWritten += transaction.adminAmount;
       result.reserveWritten += transaction.reserveAmount;
+      result.grossIncomeWritten += transaction.grossIncomeAmount;
 
       state.written += transaction.reserveAmount;
+      state.adminWritten += transaction.adminAmount;
       state.effectiveDate = transaction.effectiveDate;
       state.schedule = transaction.earningSchedule;
     } else if (transaction.transactionType === 'Cancellation') {
       result.contractsCancelled += 1;
       result.adminCancelled += Math.abs(transaction.adminAmount);
       result.reserveCancelled += Math.abs(transaction.reserveAmount);
+      result.grossIncomeCancelled += Math.abs(transaction.grossIncomeAmount);
 
       state.cancelled += Math.abs(transaction.reserveAmount);
+      state.adminCancelled += Math.abs(transaction.adminAmount);
     }
   }
 
-  for (const state of contractStates.values()) {
+  for (const [contractNumber, state] of contractStates.entries()) {
     const net = state.written - state.cancelled;
     if (state.cancelled > 0 && state.written > 0) {
       result.earnedReserve += Math.max(0, net);
@@ -352,6 +396,12 @@ function aggregate(
         factor = elapsed <= 0 ? 0 : (state.schedule[elapsed] ?? 1.0);
       }
       result.earnedReserve += state.written * factor;
+    }
+
+    const latest = latestState.get(contractNumber);
+    const isActive = latest?.contractStatus === 'A' && latest?.transactionType !== 'Cancellation';
+    if (isActive) {
+      result.netAdmin += (state.adminWritten - state.adminCancelled);
     }
   }
 
@@ -382,6 +432,14 @@ function normalizeContract(
       metadata['Status(NewBusiness,Cancellation,Upgrade,Adjustment)'],
       metadata.ContractStatus,
     );
+
+  if (
+    dealerName.toLowerCase().includes('test') ||
+    text(metadata.DealerNumber).toLowerCase().includes('test') ||
+    text(metadata.Agent).toLowerCase().includes('test')
+  ) {
+    return null;
+  }
 
   const hasCancelBillDate = firstDate(metadata.CancelBillDate) !== null;
   if (transactionType !== 'Cancellation' && hasCancelBillDate) {
@@ -458,7 +516,8 @@ function normalizeContract(
     contractStatus: text(metadata.ContractStatus).toUpperCase(),
     transactionType,
     activityDate,
-    agent: text(metadata.Agent) || 'Unassigned',
+    agent: text(metadata.Agent) || text(metadata['Agent Number']) || 'Unassigned',
+    agentName: text(metadata.AgentName ?? metadata['Agent Name']),
     dealer: text(metadata.DealerNumber) || text(metadata.DealerName) || 'Unknown Dealer',
     dealerNumber: text(metadata.DealerNumber),
     dealerName: text(metadata.DealerName),
@@ -468,10 +527,11 @@ function normalizeContract(
     riskEntity: text(metadata.RiskEntity),
     adminAmount: sumComponents(amountContainer, 'ADMIN', config),
     reserveAmount: sumComponents(amountContainer, 'RESERVE', config),
+    grossIncomeAmount: sumGrossIncomeComponents(amountContainer, config),
     earnedReserveAmount: 0,
     effectiveDate,
     earningSchedule: Object.keys(earningSchedule).length > 0 ? earningSchedule : null,
-    components: extractComponents(amountContainer, config),
+    components: extractComponents(amountContainer),
   };
 }
 
@@ -487,6 +547,14 @@ function normalizeWrittenReferenceFromCancellation(
     ) !== 'Cancellation'
   )
     return null;
+
+  if (
+    text(metadata.DealerName).toLowerCase().includes('test') ||
+    text(metadata.DealerNumber).toLowerCase().includes('test') ||
+    text(metadata.Agent).toLowerCase().includes('test')
+  ) {
+    return null;
+  }
 
   const activityDate = firstDate(metadata.ActivationDate);
   if (!activityDate || activityDate > config.asOfDate) return null;
@@ -512,7 +580,8 @@ function normalizeWrittenReferenceFromCancellation(
     contractStatus: 'C',
     transactionType: 'NewBusiness',
     activityDate,
-    agent: text(metadata.Agent) || 'Unassigned',
+    agent: text(metadata.Agent) || text(metadata['Agent Number']) || 'Unassigned',
+    agentName: text(metadata.AgentName ?? metadata['Agent Name']),
     dealer: text(metadata.DealerNumber) || text(metadata.DealerName) || 'Unknown Dealer',
     dealerNumber: text(metadata.DealerNumber),
     dealerName: text(metadata.DealerName),
@@ -522,10 +591,11 @@ function normalizeWrittenReferenceFromCancellation(
     riskEntity: text(metadata.RiskEntity),
     adminAmount: sumComponents(document.WrittenAmount, 'ADMIN', config),
     reserveAmount: sumComponents(document.WrittenAmount, 'RESERVE', config),
+    grossIncomeAmount: sumGrossIncomeComponents(document.WrittenAmount, config),
     earnedReserveAmount: 0,
     effectiveDate,
     earningSchedule: Object.keys(earningSchedule).length > 0 ? earningSchedule : null,
-    components: extractComponents(document.WrittenAmount, config),
+    components: extractComponents(document.WrittenAmount),
   };
 }
 
@@ -548,6 +618,14 @@ function normalizeClaim(
   const activity = text(document.Activity);
   let paid = number(document['Total Paid Amount']);
   const claimDescription = text(document['Claim Description']);
+
+  if (
+    dealerName.toLowerCase().includes('test') ||
+    text(document['Selling Dealer Number'] ?? document.DealerNumber).toLowerCase().includes('test') ||
+    text(document['Agent Number'] ?? document.Agent ?? document['Agent Name']).toLowerCase().includes('test')
+  ) {
+    return null;
+  }
 
   // Ensure deductibles are negative so they reduce claimsPaid
   if (
@@ -600,7 +678,8 @@ function normalizeClaim(
     // Use stable business identifiers so claim dimensions align with contract
     // metadata.Agent and metadata.DealerNumber. Names remain fallbacks only.
     agent:
-      text(document['Agent Number'] ?? document.Agent ?? document['Agent Name']) || 'Unassigned',
+      text(document['Agent Number'] ?? document.Agent) || 'Unassigned',
+    agentName: text(document['Agent Name'] ?? document.AgentName),
     dealer:
       text(
         document['Selling Dealer Number'] ??
@@ -689,6 +768,10 @@ function dimensionMetrics(
       dimension === 'dealer'
         ? matchingTransactions.find((item) => item.dealerName)?.dealerName ||
           matchingClaims.find((item) => item.dealerName)?.dealerName
+        : dimension === 'agent'
+        ? (matchingClaims.find((item) => (item as any).agentName)?.agentName as string) ||
+          (matchingTransactions.find((item) => (item as any).agentName)?.agentName as string) ||
+          name
         : undefined;
     const relatedAgents =
       dimension === 'dealer'
@@ -721,10 +804,7 @@ function dimensionMetrics(
     });
   }
   return rows.sort((a, b) => {
-    if (dimension === 'agent') {
-      return b.netAdmin - a.netAdmin || b.netReserve - a.netReserve || a.name.localeCompare(b.name);
-    }
-    return b.netReserve - a.netReserve || a.name.localeCompare(b.name);
+    return b.netAdmin - a.netAdmin || b.netReserve - a.netReserve || a.name.localeCompare(b.name);
   });
 }
 

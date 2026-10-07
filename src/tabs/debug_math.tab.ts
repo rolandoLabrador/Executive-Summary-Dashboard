@@ -2,6 +2,7 @@ import type * as ExcelJS from 'exceljs';
 import { type ReportModel, type ReportConfig } from '../models/report.types';
 import { type IDashboardTab } from './IDashboardTab';
 import { title, styleHeader, configureWorksheet } from '../utils/excel.utils';
+import { isGrossIncomeExcluded } from '../utils/report.transformer';
 
 export class DebugMathTab implements IDashboardTab {
   readonly id = 'tab_debug_math';
@@ -9,7 +10,7 @@ export class DebugMathTab implements IDashboardTab {
   constructor() {}
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  render(workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, _tabConfig: any): void {
+  render(workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, _tabConfig: unknown): void {
 
     const debugDealers = process.env.DEBUG_DEALER_NAME
       ? process.env.DEBUG_DEALER_NAME.split(',').map((s) => s.trim().toLowerCase())
@@ -166,16 +167,35 @@ export class DebugMathTab implements IDashboardTab {
 
       ws.addRow({});
 
+      // Determine Active Contracts for this dealer
+      const latestContractState = new Map<string, (typeof dealerTx)[0]>();
+      dealerTx.forEach((t) => {
+        const existing = latestContractState.get(t.contractNumber);
+        if (!existing || t.snapshotDate >= existing.snapshotDate) {
+          latestContractState.set(t.contractNumber, t);
+        }
+      });
+      const activeContractNumbers = new Set(
+        [...latestContractState.values()]
+          .filter(t => t.contractStatus === 'A' && t.transactionType !== 'Cancellation')
+          .map(t => t.contractNumber)
+      );
+
       // ── SECTION 2: RESERVE Component Breakdown ────────────────────────────
       const sums: Record<string, { written: number; cancelled: number; net: number }> = {};
 
       dealerTx.forEach((t) => {
         if (!t.components) return;
         const isCancel = t.transactionType === 'Cancellation';
+        const isActive = activeContractNumbers.has(t.contractNumber);
 
         ['RESERVE', 'ADMIN'].forEach(cat => {
-          if (!t.components[cat]) return;
-          Object.entries(t.components[cat]).forEach(([comp, amt]) => {
+          if (!t.components![cat]) return;
+          
+          // Only aggregate ADMIN components for ACTIVE contracts
+          if (cat === 'ADMIN' && !isActive) return;
+
+          Object.entries(t.components![cat]).forEach(([comp, amt]) => {
             const key = `${cat}.${comp}`;
             if (!sums[key]) sums[key] = { written: 0, cancelled: 0, net: 0 };
             if (isCancel) {
@@ -222,7 +242,7 @@ export class DebugMathTab implements IDashboardTab {
       const adminHeaderRow = ws.addRow({
         dealer: realDealerName,
         category: '── ADMIN COMPONENTS ──',
-        component: 'Bucket-level breakdown',
+        component: 'Bucket-level breakdown (ONLY FOR ACTIVE CONTRACTS)',
       });
       adminHeaderRow.font = { bold: true, italic: true, color: { argb: 'FF375623' } };
       adminHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
@@ -246,6 +266,118 @@ export class DebugMathTab implements IDashboardTab {
         dealer: '', category: '', component: 'TOTAL NET ADMIN:', net: adminNetTotal,
       });
       adminTotalRow.font = { bold: true };
+      ws.addRow({});
+
+      // ── SECTION 4: GROSS INCOME Component Breakdown ──────────────────────
+      const grossHeaderRow = ws.addRow({
+        dealer: realDealerName,
+        category: '── GROSS INCOME COMPONENTS ──',
+        component: 'Bucket-level breakdown',
+      });
+      grossHeaderRow.font = { bold: true, italic: true, color: { argb: 'FF5E1E78' } };
+      grossHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6E6FA' } };
+
+      let grossNetTotal = 0;
+      
+      const grossSums: Record<string, { written: number; cancelled: number; net: number }> = {};
+      
+      dealerTx.forEach((t) => {
+        if (!t.components) return;
+        const isCancel = t.transactionType === 'Cancellation';
+        
+        Object.keys(t.components).forEach(cat => {
+          const catData = t.components![cat];
+          if (!catData) return;
+          Object.entries(catData).forEach(([comp, amt]) => {
+            if (isGrossIncomeExcluded(cat, comp, config)) return;
+            const key = `${cat}.${comp}`;
+            if (!grossSums[key]) grossSums[key] = { written: 0, cancelled: 0, net: 0 };
+            if (isCancel) {
+              grossSums[key].cancelled -= Math.abs(amt);
+              grossSums[key].net -= Math.abs(amt);
+            } else {
+              grossSums[key].written += amt;
+              grossSums[key].net += amt;
+            }
+          });
+        });
+      });
+
+      Object.keys(grossSums).sort().forEach(k => {
+        const sum = grossSums[k];
+        if (!sum || (sum.net === 0 && sum.written === 0)) return;
+        grossNetTotal += sum.net;
+        const [cat, ...compParts] = k.split('.');
+        ws.addRow({
+          dealer: realDealerName,
+          category: cat,
+          component: compParts.join('.'),
+          written: sum.written,
+          cancelled: sum.cancelled,
+          net: sum.net,
+        });
+      });
+
+      const grossTotalRow = ws.addRow({
+        dealer: '', category: '', component: 'TOTAL NET GROSS INCOME:', net: grossNetTotal,
+      });
+      grossTotalRow.font = { bold: true };
+      ws.addRow({});
+
+      // ── SECTION 5: EXCLUDED COMPONENTS ───────────────────────────────────
+      const excludedHeaderRow = ws.addRow({
+        dealer: realDealerName,
+        category: '── EXCLUDED COMPONENTS ──',
+        component: 'Buckets explicitly excluded from Gross Income',
+      });
+      excludedHeaderRow.font = { italic: true, color: { argb: 'FF808080' } };
+      excludedHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+
+      let excludedTotal = 0;
+      const excludedSums: Record<string, { written: number; cancelled: number; net: number }> = {};
+      
+      dealerTx.forEach((t) => {
+        if (!t.components) return;
+        const isCancel = t.transactionType === 'Cancellation';
+        
+        Object.keys(t.components).forEach(cat => {
+          const catData = t.components![cat];
+          if (!catData) return;
+          Object.entries(catData).forEach(([comp, amt]) => {
+            if (!isGrossIncomeExcluded(cat, comp, config)) return;
+            const key = `${cat}.${comp}`;
+            if (!excludedSums[key]) excludedSums[key] = { written: 0, cancelled: 0, net: 0 };
+            if (isCancel) {
+              excludedSums[key].cancelled -= Math.abs(amt);
+              excludedSums[key].net -= Math.abs(amt);
+            } else {
+              excludedSums[key].written += amt;
+              excludedSums[key].net += amt;
+            }
+          });
+        });
+      });
+
+      Object.keys(excludedSums).sort().forEach(k => {
+        const sum = excludedSums[k];
+        if (!sum || (sum.net === 0 && sum.written === 0)) return;
+        excludedTotal += sum.net;
+        const [cat, ...compParts] = k.split('.');
+        const r = ws.addRow({
+          dealer: realDealerName,
+          category: cat,
+          component: compParts.join('.'),
+          written: sum.written,
+          cancelled: sum.cancelled,
+          net: sum.net,
+        });
+        r.font = { color: { argb: 'FF808080' } }; // gray out excluded rows
+      });
+
+      const excludedTotalRow = ws.addRow({
+        dealer: '', category: '', component: 'TOTAL EXCLUDED:', net: excludedTotal,
+      });
+      excludedTotalRow.font = { bold: true, color: { argb: 'FF808080' } };
       ws.addRow({});
       ws.addRow({});
     }

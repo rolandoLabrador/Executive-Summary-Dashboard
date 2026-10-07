@@ -10,7 +10,7 @@ export class LossCodeDashboardTab implements IDashboardTab {
   constructor() {}
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  render(workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, tabConfig: any): void {
+  render(workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, tabConfig: unknown): void {
 
     const ws = workbook.addWorksheet('Loss Code Dashboard');
     configureWorksheet(ws);

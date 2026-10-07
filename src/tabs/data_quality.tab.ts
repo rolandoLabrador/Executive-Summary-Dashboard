@@ -1,8 +1,7 @@
 import type * as ExcelJS from 'exceljs';
 import { type ReportModel, type ReportConfig } from '../models/report.types';
 import { type IDashboardTab } from './IDashboardTab';
-import { title, styleHeader, styleHeaderRange, COLORS, MONEY, PERCENT, INTEGER, dataBarRule, configureWorksheet, visibleLossCodeRows, lossCodeChartSegments, formatDateRange, formatDate } from '../utils/excel.utils';
-import { renderPieChartPng } from '../utils/pie-chart.renderer';
+import { title, styleHeaderRange, COLORS, INTEGER, configureWorksheet } from '../utils/excel.utils';
 
 export class DataQualityTab implements IDashboardTab {
   readonly id = 'tab_data_quality';
@@ -10,7 +9,7 @@ export class DataQualityTab implements IDashboardTab {
   constructor() {}
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  render(workbook: ExcelJS.Workbook, model: ReportModel, _config: ReportConfig, _tabConfig: any): void {
+  render(workbook: ExcelJS.Workbook, model: ReportModel, _config: ReportConfig, _tabConfig: unknown): void {
     
     const ws = workbook.addWorksheet('Data Quality');
     configureWorksheet(ws);

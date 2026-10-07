@@ -60,6 +60,7 @@ export class ExecutiveDashboardTab implements IDashboardTab {
         row,
         comparisonHeading('Year to Date vs Prior-Year YTD', model.yearToDate),
         model.yearToDate,
+        'Prior Year',
       );
     }
     
@@ -151,6 +152,7 @@ export class ExecutiveDashboardTab implements IDashboardTab {
       { row: 9, label: 'Earned Reserve', key: 'earnedReserve', format: MONEY },
       { row: 11, label: 'Claims Paid', key: 'claimsPaid', format: MONEY },
       { row: 13, label: 'Earned Loss Ratio', key: 'earnedLossRatio', format: PERCENT },
+      { row: 15, label: 'Net Admin', key: 'netAdmin', format: MONEY },
     ];
 
     trends.forEach(({ row, label, key, format }, trendIndex) => {
@@ -176,7 +178,7 @@ export class ExecutiveDashboardTab implements IDashboardTab {
       itdCell.alignment = { horizontal: 'center' };
       itdCell.font = { bold: true };
 
-      if (months.length > 0 && key !== 'earnedLossRatio') {
+      if (months.length > 0) {
         // Data bar only for the months (don't include ITD in the relative bar sizing because ITD is huge)
         ws.addConditionalFormatting({
           ref: `${ws.getCell(row, firstColumn).address}:${ws.getCell(row, firstColumn + months.length - 1).address}`,
@@ -185,8 +187,8 @@ export class ExecutiveDashboardTab implements IDashboardTab {
       }
     });
 
-    ws.mergeCells(17, firstColumn, 17, lastColumn);
-    const note = ws.getCell(17, firstColumn);
+    ws.mergeCells(19, firstColumn, 19, lastColumn);
+    const note = ws.getCell(19, firstColumn);
     note.value =
       'Green = latest completed month  |  Amber = preceding month  |  Bars show relative monthly magnitude (excluding ITD)';
     note.font = { italic: true, color: { argb: COLORS.darkGray } };
@@ -231,12 +233,11 @@ export class ExecutiveDashboardTab implements IDashboardTab {
     headerRow.getCell(13).value = 'Active Contracts';
     headerRow.getCell(14).value = 'Claim Count';
     headerRow.getCell(15).value = 'Claims Paid';
-    headerRow.getCell(16).value = 'Premium';
-    headerRow.getCell(17).value = 'Net Admin';
-    headerRow.getCell(18).value = 'Earned Reserve';
-    headerRow.getCell(19).value = 'Earned Loss Ratio';
+    headerRow.getCell(16).value = 'Net Admin';
+    headerRow.getCell(17).value = 'Earned Reserve';
+    headerRow.getCell(18).value = 'Earned Loss Ratio';
 
-    [8, 9, 12, 13, 14, 15, 16, 17, 18, 19].forEach((col) => {
+    [8, 9, 12, 13, 14, 15, 16, 17, 18].forEach((col) => {
       const cell = headerRow.getCell(col);
       cell.font = { bold: true, color: { argb: COLORS.white } };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
@@ -267,27 +268,23 @@ export class ExecutiveDashboardTab implements IDashboardTab {
       row.getCell(15).numFmt = MONEY;
       row.getCell(15).alignment = { horizontal: 'center' };
 
-      row.getCell(16).value = dealer.premium;
+      row.getCell(16).value = dealer.netAdmin;
       row.getCell(16).numFmt = MONEY;
       row.getCell(16).alignment = { horizontal: 'center' };
 
-      row.getCell(17).value = dealer.netAdmin;
+      row.getCell(17).value = dealer.earnedReserve;
       row.getCell(17).numFmt = MONEY;
       row.getCell(17).alignment = { horizontal: 'center' };
 
-      row.getCell(18).value = dealer.earnedReserve;
-      row.getCell(18).numFmt = MONEY;
-
-      const lossRatioCell = row.getCell(19);
+      const lossRatioCell = row.getCell(18);
       lossRatioCell.value = dealer.earnedLossRatio;
       lossRatioCell.numFmt = PERCENT;
-      row.getCell(18).alignment = { horizontal: 'center' };
       lossRatioCell.alignment = { horizontal: 'center' };
     });
     
     if (worst.length > 0) {
       ws.addConditionalFormatting({
-        ref: `S${startRow + 2}:S${startRow + 1 + worst.length}`,
+        ref: `R${startRow + 2}:R${startRow + 1 + worst.length}`,
         rules: [dataBarRule(20)],
       });
     }

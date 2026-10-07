@@ -2,7 +2,11 @@ import * as ExcelJS from 'exceljs';
 import { type ReportModel, type ReportConfig } from '../models/report.types';
 import { TabRegistry } from '../tabs/TabRegistry';
 import rawConfig from '../tabs/dashboard.config.json';
-const dashboardConfig: any = rawConfig;
+export type TabConfig = boolean | { enabled?: boolean; tables?: Record<string, boolean> };
+interface DashboardConfig {
+  activeTabs: Record<string, TabConfig>;
+}
+const dashboardConfig: DashboardConfig = rawConfig as DashboardConfig;
 
 import { ExecutiveDashboardTab } from '../tabs/executive_dashboard.tab';
 import { DealerDashboardTab } from '../tabs/dealer_dashboard.tab';
@@ -48,12 +52,12 @@ export class ExcelService {
     const hasDebug = debugDealers.length > 0 || debugAgents.length > 0;
 
     // Render tabs based on config and debug mode
-    const activeTabs = dashboardConfig.activeTabs;
+    const activeTabs: Record<string, TabConfig> = dashboardConfig.activeTabs as Record<string, TabConfig>;
 
     const tabsToRender = [
       { key: 'tab_executive_summary', id: 'tab_executive_summary' },
-      { key: 'tab_dealer_dashboard', id: 'tab_dealer_dashboard' },
       { key: 'tab_agent_dashboard', id: 'tab_agent_dashboard' },
+      { key: 'tab_dealer_dashboard', id: 'tab_dealer_dashboard' },
       { key: 'tab_product_dashboard', id: 'tab_product_dashboard' },
       { key: 'tab_loss_code', id: 'tab_loss_code' },
       { key: 'tab_monthly', id: 'tab_monthly' },
@@ -70,7 +74,7 @@ export class ExcelService {
       const tabConfig = activeTabs[tabInfo.key];
       let shouldRender = false;
 
-      if (tabConfig === true || tabConfig?.enabled === true) {
+      if (tabConfig === true || (typeof tabConfig === 'object' && tabConfig !== null && 'enabled' in tabConfig && tabConfig.enabled === true)) {
         shouldRender = true;
       }
 

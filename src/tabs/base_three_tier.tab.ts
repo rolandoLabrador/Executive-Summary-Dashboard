@@ -26,10 +26,10 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
   protected abstract getYtdRows(model: ReportModel): DimensionMetric[];
   protected abstract getLimit(config: ReportConfig): number | undefined;
 
-  public render(workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, tabConfig: any): void {
+  public render(workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, tabConfig: { tables?: Record<string, boolean> }): void {
     const ws = workbook.addWorksheet(this.name);
     configureWorksheet(ws);
-    const maxCols = this.isDealer || this.isAgent ? 19 : 17;
+    const maxCols = this.isDealer ? 19 : 17;
     title(
       ws,
       this.heading,
@@ -85,7 +85,6 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       { width: 16 }, // Net Admin
       { width: 16 }, // Average admin
       { width: 16 }, // Net Reserve
-      { width: 16 }, // Premium
       { width: 16 }, // Earned Reserve
       { width: 16 }, // Claims Paid
       { width: 16 }, // Underwriting Profit
@@ -114,15 +113,14 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
     const headers = [
       'Rank',
       this.isDealer ? 'Dealer Number' : this.name.replace(' Dashboard', ''),
-      ...(this.isDealer ? ['Dealer Name', 'Agents'] : this.isAgent ? ['Agent Name', 'Dealers'] : []),
+      ...(this.isDealer ? ['Dealer Name', 'Agents'] : []),
       'Written',
       'Active Contracts',
       'Gross Income',
-      'Cancellations Processed',
+      'cancellation',
       'Net Admin',
-      'Avg Admin / Contract',
+      'Average admin',
       'Net Reserve',
-      'Premium',
       'Earned Reserve',
       'Claims Paid',
       'Underwriting Profit',
@@ -138,12 +136,10 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       const row = ws.getRow(startRow + 2 + index);
       row.values = [
         index + 1,
-        item.name,
+        this.isDealer ? item.name : (item.displayName || item.name),
         ...(this.isDealer
           ? [item.displayName || 'Name unavailable', item.relatedAgents?.join(', ') || 'Unassigned']
-          : this.isAgent
-            ? [item.name, item.relatedDealers?.join(', ') || 'Unassigned']
-            : []),
+          : []),
         item.contractsWritten,
         item.activeContracts,
         item.grossIncome,
@@ -151,7 +147,6 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
         item.netAdmin,
         item.adminPerContract,
         item.netReserve,
-        item.premium,
         item.earnedReserve,
         item.claimsPaid,
         item.underwritingProfit,
@@ -160,26 +155,26 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
         item.cancellationRate,
         item.earnedLossRatio,
       ];
-      const offset = this.isDealer || this.isAgent ? 2 : 0;
-      [3, 4, 6, 14].forEach((column) => {
+      const offset = this.isDealer ? 2 : 0;
+      [3, 4, 6, 13].forEach((column) => {
         row.getCell(column + offset).numFmt = INTEGER;
       });
-      [5, 7, 8, 9, 10, 11, 12, 13].forEach((column) => {
+      [5, 7, 8, 9, 10, 11, 12].forEach((column) => {
         row.getCell(column + offset).numFmt = MONEY;
       });
-      [15, 16, 17].forEach((column) => {
+      [14, 15, 16].forEach((column) => {
         row.getCell(column + offset).numFmt = PERCENT;
       });
       
-      // RULE 1: Visual Flag for Avg Admin / Contract < 20
+      // RULE 1: Visual Flag for Average admin < 20
       const adminCell = row.getCell(8 + offset);
       if (item.adminPerContract !== null && item.adminPerContract > 0 && item.adminPerContract < 20) {
         adminCell.font = { color: { argb: COLORS.red }, bold: true };
-        adminCell.note = 'FLAGGED: Avg Admin / Contract is below $20.00';
+        adminCell.note = 'FLAGGED: Average admin is below $20.00';
       }
 
       // RULE 2: Colored Data Bars for Loss Ratio
-      const barCell = row.getCell(17 + offset);
+      const barCell = row.getCell(16 + offset);
       const colorHex = getLossRatioBarColorHex(item.earnedLossRatio);
       ws.addConditionalFormatting({
         ref: barCell.address,
@@ -190,7 +185,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
     if (selected.length > 0) {
       const firstDataRow = startRow + 2;
       const lastDataRow = startRow + 1 + selected.length;
-      const earnedRatioCol = this.isDealer || this.isAgent ? 'Q' : 'O';
+      const earnedRatioCol = this.isDealer ? 'Q' : 'O';
 
       const ratioRules: ExcelJS.ConditionalFormattingRule[] = [
         {

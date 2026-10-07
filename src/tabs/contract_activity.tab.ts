@@ -9,7 +9,7 @@ export class ContractActivityTab implements IDashboardTab {
   constructor() {}
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  render(workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, _tabConfig: any): void {
+  render(workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, _tabConfig: unknown): void {
 
     const ws = workbook.addWorksheet('Contract Activity');
     configureWorksheet(ws);
@@ -55,7 +55,7 @@ export class ContractActivityTab implements IDashboardTab {
       { width: 18 },                           // col 5  Contract Number
       { width: 14 },                           // col 6  Transaction
       { width: 12 },                           // col 7  Status
-      { width: 24 },                           // col 8  Agent
+      { width: 24 },                           // col 8  Agent Name
       { width: 14 },                           // col 9  Dealer Number
       { width: 30 },                           // col 10 Dealer Name
       { width: 25 },                           // col 11 Product
@@ -64,24 +64,22 @@ export class ContractActivityTab implements IDashboardTab {
       { width: 18 },                           // col 14 Risk Entity
       { width: 14, numFmt: MONEY },            // col 15 Admin
       { width: 14, numFmt: MONEY },            // col 16 Reserve
-      { width: 14, numFmt: MONEY },            // col 17 Premium
-      { width: 16, numFmt: MONEY },            // col 18 Earned Reserve
+      { width: 16, numFmt: MONEY },            // col 17 Earned Reserve
     ];
 
     if (hasDebug) {
       // Highlight financial columns green in debug mode
       baseColumns[14]!.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } }; // Admin
       baseColumns[15]!.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } }; // Reserve
-      baseColumns[16]!.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC6E0B4' } }; // Premium
-      baseColumns[17]!.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } }; // Earned Reserve
+      baseColumns[16]!.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } }; // Earned Reserve
 
       // Debug-only earned breakdown columns — orange highlight
       const orange = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFCE4D6' } };
-      baseColumns.push({ width: 22, numFmt: MONEY, fill: orange });   // col 19 Earned Amt / Contract
-      baseColumns.push({ width: 16, numFmt: PERCENT, fill: orange });  // col 20 Earn Ratio (factor)
-      baseColumns.push({ width: 16, fill: orange });                   // col 21 Elapsed Months
-      baseColumns.push({ width: 20, fill: orange });                   // col 22 Schedule Max Month
-      baseColumns.push({ width: 18, fill: orange });                   // col 23 Factor @ Elapsed (source)
+      baseColumns.push({ width: 22, numFmt: MONEY, fill: orange });   // col 18 Earned Amt / Contract
+      baseColumns.push({ width: 16, numFmt: PERCENT, fill: orange });  // col 19 Earn Ratio (factor)
+      baseColumns.push({ width: 16, fill: orange });                   // col 20 Elapsed Months
+      baseColumns.push({ width: 20, fill: orange });                   // col 21 Schedule Max Month
+      baseColumns.push({ width: 18, fill: orange });                   // col 22 Factor @ Elapsed (source)
     }
 
     const dynColumns = componentColumns.map(() => ({ width: 18, numFmt: MONEY }));
@@ -95,7 +93,7 @@ export class ContractActivityTab implements IDashboardTab {
       'Contract Number',
       'Transaction',
       'Status',
-      'Agent',
+      'Agent Name',
       'Dealer Number',
       'Dealer Name',
       'Product',
@@ -104,7 +102,6 @@ export class ContractActivityTab implements IDashboardTab {
       'Risk Entity',
       'Admin',
       'Reserve',
-      'Premium',
       'Earned Reserve',
       ...(hasDebug ? [
         'Earned Amt / Contract',
@@ -150,7 +147,6 @@ export class ContractActivityTab implements IDashboardTab {
         item.riskEntity,
         item.adminAmount,
         item.reserveAmount,
-        item.adminAmount + item.reserveAmount,       // Premium
         item.earnedReserveAmount,
       ];
 
