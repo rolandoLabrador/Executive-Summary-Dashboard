@@ -769,8 +769,8 @@ function dimensionMetrics(
         ? matchingTransactions.find((item) => item.dealerName)?.dealerName ||
           matchingClaims.find((item) => item.dealerName)?.dealerName
         : dimension === 'agent'
-        ? (matchingClaims.find((item) => (item as any).agentName)?.agentName as string) ||
-          (matchingTransactions.find((item) => (item as any).agentName)?.agentName as string) ||
+        ? (matchingClaims.find((item) => item.agentName)?.agentName as string) ||
+          (matchingTransactions.find((item) => item.agentName)?.agentName as string) ||
           name
         : undefined;
     const relatedAgents =

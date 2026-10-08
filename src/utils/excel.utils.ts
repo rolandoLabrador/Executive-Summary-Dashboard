@@ -55,7 +55,12 @@ export const REPORT_DEFINITIONS: Record<string, string> = {
   'Contracts Written': 'Gross original contracts grouped by metadata.ActivationDate. When the new-business source is missing, a cancellation may supply an auditable written reference that retains canceled status and is never active.',
   'Contract Count Reconciliation': 'For the same ActivationDate cohort and as-of cutoff: Written Contracts = Active Contracts + contracts from that cohort whose latest state is canceled. Cancellations is grouped by CancelBillDate and is not generally the cancellation term in this equation.',
   'Privacy': 'Customer identity, contact, address, and VIN fields are excluded at MongoDB extraction.',
-  'Average admin': 'Calculated as Net Admin (from the reporting period) divided by Active Contracts (from the reporting period).'
+  'Average admin': 'Calculated as Net Admin (from the reporting period) divided by Active Contracts (from the reporting period). If a cohort has 0 Active Contracts in the reporting period (e.g. only cancelled/expired contracts or claims), this value is left intentionally blank to avoid mathematical errors.',
+  'Rule: Low Admin Flag': 'If the calculated Average Admin per contract is positive but less than $20.00, the cell is highlighted in bold red font and flagged with a tooltip/note.',
+  'Rule: Loss Ratio Data Bars': 'Loss ratio cells contain embedded data bars that visually indicate performance: Green (< 85%), Amber (85% - 100%), and Red (> 100%).',
+  'Rule: High Loss Ratio Highlights': 'Row-level earned loss ratios exceeding the warning threshold are highlighted yellow; those exceeding the high threshold are highlighted red.',
+  'Rule: Agent Display Limit': 'The Agent Dashboard displays ALL agents without any row limit.',
+  'Rule: Dealer Display Limit': 'The Dealer Dashboard is limited to displaying only the top 20 dealers (configurable via TOP_DEALER_COUNT).'
 };
 
 export const KPI_DEFINITIONS: MetricDefinition[] = [

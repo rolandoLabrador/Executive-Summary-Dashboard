@@ -36,12 +36,12 @@
         "yearToDate": true
       }
     },
-    "tab_loss_code": false,
-    "tab_monthly": false,
+    "tab_loss_code": true,
+    "tab_monthly": true,
     "tab_contract_detail": false,
     "tab_claim_detail": false,
     "tab_data_quality": false,
     "tab_debug_math": false,
-    "tab_definitions": false
+    "tab_definitions": true
   }
 }
