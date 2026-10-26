@@ -37,7 +37,7 @@ export class DefinitionsTab implements IDashboardTab {
       [
         'Net Admin', 
         'ADMIN, BASEADMIN, BASEADMINMS, BASEADMINOS, MARKETINGFEE', 
-        'ROADSIDEADMIN, LOANPMT, OTHERCOMM, PREMTAX, AGENTNCB, ROADSIDE AKMC\n(Also broadly excluded: DEALER, COMM, F&I, PACK)'
+        'ROADSIDEADMIN, OTHERCOMM, PREMTAX, AGENTNCB, ROADSIDE AKMC\n(Also broadly excluded: DEALER, COMM, F&I, PACK, LOANPMT, LOANPAYMENT)'
       ],
       [
         'Net Reserve', 

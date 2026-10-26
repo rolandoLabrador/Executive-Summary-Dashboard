@@ -140,7 +140,8 @@ export function excludedComponent(
     upper.includes('COMMISSION') ||
     upper.includes('COMM') ||
     upper.includes('F&I') ||
-    upper.includes('PACK')
+    upper.includes('PACK') ||
+    ['LOANPMT', 'LOANPAYMENT'].includes(upper)
   ) {
     return true;
   }
@@ -162,7 +163,7 @@ export function excludedComponent(
   // Explicit exclusions for ADMIN calculation
   if (category === 'ADMIN') {
     if (
-      ['ROADSIDEADMIN', 'LOANPMT', 'OTHERCOMM', 'PREMTAX', 'AGENTNCB'].includes(upper) ||
+      ['ROADSIDEADMIN', 'OTHERCOMM', 'PREMTAX', 'AGENTNCB'].includes(upper) ||
       upper.includes('ROADSIDE AKMC')
     ) {
       return true;
@@ -228,7 +229,8 @@ export function isGrossIncomeExcluded(category: string, name: string, config: Re
     upper.includes('COMMISSION') ||
     upper.includes('COMM') ||
     upper.includes('F&I') ||
-    upper.includes('PACK')
+    upper.includes('PACK') ||
+    ['LOANPMT', 'LOANPAYMENT'].includes(upper)
   ) {
     return true;
   }

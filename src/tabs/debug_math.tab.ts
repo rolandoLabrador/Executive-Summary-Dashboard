@@ -2,7 +2,7 @@ import type * as ExcelJS from 'exceljs';
 import { type ReportModel, type ReportConfig } from '../models/report.types';
 import { type IDashboardTab } from './IDashboardTab';
 import { title, styleHeader, configureWorksheet } from '../utils/excel.utils';
-import { isGrossIncomeExcluded } from '../utils/report.transformer';
+import { isGrossIncomeExcluded, excludedComponent } from '../utils/report.transformer';
 
 export class DebugMathTab implements IDashboardTab {
   readonly id = 'tab_debug_math';
@@ -196,6 +196,8 @@ export class DebugMathTab implements IDashboardTab {
           if (cat === 'ADMIN' && !isActive) return;
 
           Object.entries(t.components![cat]).forEach(([comp, amt]) => {
+            if (excludedComponent(comp, cat as 'ADMIN' | 'RESERVE', config)) return;
+            
             const key = `${cat}.${comp}`;
             if (!sums[key]) sums[key] = { written: 0, cancelled: 0, net: 0 };
             if (isCancel) {
