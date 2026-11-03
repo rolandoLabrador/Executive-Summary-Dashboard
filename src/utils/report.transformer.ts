@@ -38,6 +38,7 @@ const EMPTY_METRICS: MetricValues = {
   grossIncomeCancelled: 0,
   grossIncome: 0,
   earnedLossRatio: null,
+  percentEarned: null,
   cancellationRate: null,
   adminPerContract: null,
 };
@@ -173,7 +174,10 @@ export function excludedComponent(
   return false;
 }
 
-function getCategoryEntries(container: unknown, targetCategory: 'ADMIN' | 'RESERVE'): Array<[string, unknown]> {
+function getCategoryEntries(
+  container: unknown,
+  targetCategory: 'ADMIN' | 'RESERVE',
+): Array<[string, unknown]> {
   const root = record(container);
   const targetUpper = targetCategory.toUpperCase();
   for (const [catName, values] of Object.entries(root)) {
@@ -209,7 +213,11 @@ function sumComponents(
   return sum;
 }
 
-export function isGrossIncomeExcluded(category: string, name: string, config: ReportConfig): boolean {
+export function isGrossIncomeExcluded(
+  category: string,
+  name: string,
+  config: ReportConfig,
+): boolean {
   const upperCat = category.trim().toUpperCase();
   if (
     upperCat.includes('COMMISSION') ||
@@ -240,7 +248,7 @@ export function isGrossIncomeExcluded(category: string, name: string, config: Re
 function sumGrossIncomeComponents(container: unknown, config: ReportConfig): number {
   let sum = 0;
   const root = record(container);
-  
+
   for (const [category, values] of Object.entries(root)) {
     if (typeof values === 'object' && values !== null) {
       for (const [name, value] of Object.entries(record(values))) {
@@ -256,7 +264,7 @@ function sumGrossIncomeComponents(container: unknown, config: ReportConfig): num
 function extractComponents(container: unknown): Record<string, Record<string, number>> {
   const result: Record<string, Record<string, number>> = {};
   const root = record(container);
-  
+
   for (const [category, values] of Object.entries(root)) {
     const upperCat = category.toUpperCase();
     if (typeof values === 'object' && values !== null) {
@@ -306,17 +314,20 @@ function finalize(metrics: MetricValues): MetricValues {
   result.grossIncome = result.grossIncomeWritten - result.grossIncomeCancelled;
   result.earnedLossRatio =
     result.earnedReserve > 0 ? result.claimsPaid / result.earnedReserve : null;
+  result.percentEarned = result.netReserve > 0 ? result.earnedReserve / result.netReserve : null;
+  result.percentEarned =
+    result.netReserve > 0 ? result.earnedReserve / result.netReserve : null;
   result.cancellationRate =
     result.contractsWritten > 0 ? result.contractsCancelled / result.contractsWritten : null;
   result.adminPerContract =
     result.activeContracts > 0 ? result.netAdmin / result.activeContracts : null;
-    
+
   // RULE 1: Flag any Avg Admin / Contract less than $20.00
   if (result.adminPerContract !== null && result.adminPerContract < 20) {
     // TODO: Implement SendGrid email warning here for possible mistakes
     // e.g., await emailService.sendWarning({ type: 'LOW_ADMIN_FEE', value: result.adminPerContract });
   }
-  
+
   return result;
 }
 
@@ -354,12 +365,22 @@ function aggregate(
     }
   >();
 
+  const writtenContracts = new Set<string>();
+  const cancelledContracts = new Set<string>();
+
   for (const transaction of transactions) {
     if (!inRange(transaction.activityDate, start, end)) continue;
 
     let state = contractStates.get(transaction.contractNumber);
     if (!state) {
-      state = { written: 0, cancelled: 0, adminWritten: 0, adminCancelled: 0, effectiveDate: null, schedule: null };
+      state = {
+        written: 0,
+        cancelled: 0,
+        adminWritten: 0,
+        adminCancelled: 0,
+        effectiveDate: null,
+        schedule: null,
+      };
       contractStates.set(transaction.contractNumber, state);
     }
 
@@ -367,7 +388,7 @@ function aggregate(
       transaction.transactionType !== 'Cancellation' &&
       transaction.transactionType !== 'Unknown'
     ) {
-      result.contractsWritten += 1;
+      writtenContracts.add(transaction.contractNumber);
       result.adminWritten += transaction.adminAmount;
       result.reserveWritten += transaction.reserveAmount;
       result.grossIncomeWritten += transaction.grossIncomeAmount;
@@ -377,7 +398,7 @@ function aggregate(
       state.effectiveDate = transaction.effectiveDate;
       state.schedule = transaction.earningSchedule;
     } else if (transaction.transactionType === 'Cancellation') {
-      result.contractsCancelled += 1;
+      cancelledContracts.add(transaction.contractNumber);
       result.adminCancelled += Math.abs(transaction.adminAmount);
       result.reserveCancelled += Math.abs(transaction.reserveAmount);
       result.grossIncomeCancelled += Math.abs(transaction.grossIncomeAmount);
@@ -386,6 +407,9 @@ function aggregate(
       state.adminCancelled += Math.abs(transaction.adminAmount);
     }
   }
+
+  result.contractsWritten = writtenContracts.size;
+  result.contractsCancelled = cancelledContracts.size;
 
   for (const [contractNumber, state] of contractStates.entries()) {
     const net = state.written - state.cancelled;
@@ -403,7 +427,7 @@ function aggregate(
     const latest = latestState.get(contractNumber);
     const isActive = latest?.contractStatus === 'A' && latest?.transactionType !== 'Cancellation';
     if (isActive) {
-      result.netAdmin += (state.adminWritten - state.adminCancelled);
+      result.netAdmin += state.adminWritten - state.adminCancelled;
     }
   }
 
@@ -623,8 +647,12 @@ function normalizeClaim(
 
   if (
     dealerName.toLowerCase().includes('test') ||
-    text(document['Selling Dealer Number'] ?? document.DealerNumber).toLowerCase().includes('test') ||
-    text(document['Agent Number'] ?? document.Agent ?? document['Agent Name']).toLowerCase().includes('test')
+    text(document['Selling Dealer Number'] ?? document.DealerNumber)
+      .toLowerCase()
+      .includes('test') ||
+    text(document['Agent Number'] ?? document.Agent ?? document['Agent Name'])
+      .toLowerCase()
+      .includes('test')
   ) {
     return null;
   }
@@ -679,8 +707,7 @@ function normalizeClaim(
     paidAmount: paid,
     // Use stable business identifiers so claim dimensions align with contract
     // metadata.Agent and metadata.DealerNumber. Names remain fallbacks only.
-    agent:
-      text(document['Agent Number'] ?? document.Agent) || 'Unassigned',
+    agent: text(document['Agent Number'] ?? document.Agent) || 'Unassigned',
     agentName: text(document['Agent Name'] ?? document.AgentName),
     dealer:
       text(
@@ -771,10 +798,10 @@ function dimensionMetrics(
         ? matchingTransactions.find((item) => item.dealerName)?.dealerName ||
           matchingClaims.find((item) => item.dealerName)?.dealerName
         : dimension === 'agent'
-        ? (matchingClaims.find((item) => item.agentName)?.agentName as string) ||
-          (matchingTransactions.find((item) => item.agentName)?.agentName as string) ||
-          name
-        : undefined;
+          ? (matchingClaims.find((item) => item.agentName)?.agentName as string) ||
+            (matchingTransactions.find((item) => item.agentName)?.agentName as string) ||
+            name
+          : undefined;
     const relatedAgents =
       dimension === 'dealer'
         ? [

@@ -1,7 +1,3 @@
-
-async function* asAsyncIterable(arr) {
-  for (const item of arr) yield item;
-}
 import * as assert from 'assert';
 import * as ExcelJS from 'exceljs';
 import { type ReportConfig, type UnknownDocument } from '../src/models/report.types';
@@ -386,19 +382,13 @@ async function verifyWorkbook(): Promise<void> {
     agentDashboard?.getCell('A2').value,
     'Rolling 12-Month & Latest Month Results | Through 07/31/2026',
   );
-  assert.match(
-    String(agentDashboard?.getCell('A4').value),
-    /^ROLLING 12-MONTH RESULTS/,
-  );
+  assert.match(String(agentDashboard?.getCell('A4').value), /^ROLLING 12-MONTH RESULTS/);
   const productDashboard = workbook.getWorksheet('Product Dashboard');
   assert.strictEqual(
     productDashboard?.getCell('A2').value,
     'Rolling 12-Month & Latest Month Results | Through 07/31/2026',
   );
-  assert.match(
-    String(productDashboard?.getCell('A4').value),
-    /^ROLLING 12-MONTH RESULTS/,
-  );
+  assert.match(String(productDashboard?.getCell('A4').value), /^ROLLING 12-MONTH RESULTS/);
   assert.strictEqual(productDashboard?.getCell('B5').value, 'Product');
   assert.strictEqual(productDashboard?.getCell('B6').value, 'VSC');
   const lossCodeDashboard = workbook.getWorksheet('Loss Code Dashboard');

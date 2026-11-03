@@ -9,7 +9,10 @@ async function run() {
   const client = new MongoClient(uri);
   await client.connect();
   const db = client.db('ContractDataDB');
-  const contracts = await db.collection('ContractData').find({ 'metadata.DealerName': 'Power Motors East' }).toArray();
+  const contracts = await db
+    .collection('ContractData')
+    .find({ 'metadata.DealerName': 'Power Motors East' })
+    .toArray();
   let total = 0;
   for (const c of contracts) {
     if (c.WrittenAmount && c.WrittenAmount.RESERVE && c.WrittenAmount.RESERVE.ADMIN) {

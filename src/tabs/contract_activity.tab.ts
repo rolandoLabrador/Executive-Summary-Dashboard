@@ -8,9 +8,12 @@ export class ContractActivityTab implements IDashboardTab {
 
   constructor() {}
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  render(workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, _tabConfig: unknown): void {
-
+  render(
+    workbook: ExcelJS.Workbook,
+    model: ReportModel,
+    config: ReportConfig,
+    _tabConfig?: unknown,
+  ): void {
     const ws = workbook.addWorksheet('Contract Activity');
     configureWorksheet(ws);
     title(
@@ -38,6 +41,22 @@ export class ContractActivityTab implements IDashboardTab {
       : [];
     const hasDebug = debugDealers.length > 0 || debugAgents.length > 0;
 
+    function matchesAgent(agent?: string, agentName?: string): boolean {
+      if (debugAgents.length === 0) return false;
+      const code = agent?.trim().toLowerCase() || '';
+      const name = agentName?.trim().toLowerCase() || '';
+      return debugAgents.some((d) => {
+        if (d === code || d === name) return true;
+        if (
+          (d === 'exw' || d === 'executive warranties') &&
+          (code === 'exw' || name === 'executive warranties')
+        ) {
+          return true;
+        }
+        return false;
+      });
+    }
+
     // Helper: elapsed months from effectiveDate to as-of date (mirrors report.transformer logic)
     const asOf = config.asOfDate;
     function elapsedMonths(start: Date, end: Date): number {
@@ -48,23 +67,23 @@ export class ContractActivityTab implements IDashboardTab {
     }
 
     const baseColumns: Partial<ExcelJS.Column>[] = [
-      { width: 26 },                           // col 1  Source ID
-      { width: 14, numFmt: 'mm/dd/yyyy' },     // col 2  Snapshot Date
-      { width: 14, numFmt: 'mm/dd/yyyy' },     // col 3  Activity Date
-      { width: 14, numFmt: 'mm/dd/yyyy' },     // col 4  Effective / Activation Date
-      { width: 18 },                           // col 5  Contract Number
-      { width: 14 },                           // col 6  Transaction
-      { width: 12 },                           // col 7  Status
-      { width: 24 },                           // col 8  Agent Name
-      { width: 14 },                           // col 9  Dealer Number
-      { width: 30 },                           // col 10 Dealer Name
-      { width: 25 },                           // col 11 Product
-      { width: 16 },                           // col 12 Coverage Code
-      { width: 12 },                           // col 13 Company
-      { width: 18 },                           // col 14 Risk Entity
-      { width: 14, numFmt: MONEY },            // col 15 Admin
-      { width: 14, numFmt: MONEY },            // col 16 Reserve
-      { width: 16, numFmt: MONEY },            // col 17 Earned Reserve
+      { width: 26 }, // col 1  Source ID
+      { width: 14, numFmt: 'mm/dd/yyyy' }, // col 2  Snapshot Date
+      { width: 14, numFmt: 'mm/dd/yyyy' }, // col 3  Activity Date
+      { width: 14, numFmt: 'mm/dd/yyyy' }, // col 4  Effective / Activation Date
+      { width: 18 }, // col 5  Contract Number
+      { width: 14 }, // col 6  Transaction
+      { width: 12 }, // col 7  Status
+      { width: 24 }, // col 8  Agent Name
+      { width: 14 }, // col 9  Dealer Number
+      { width: 30 }, // col 10 Dealer Name
+      { width: 25 }, // col 11 Product
+      { width: 16 }, // col 12 Coverage Code
+      { width: 12 }, // col 13 Company
+      { width: 18 }, // col 14 Risk Entity
+      { width: 14, numFmt: MONEY }, // col 15 Admin
+      { width: 14, numFmt: MONEY }, // col 16 Reserve
+      { width: 16, numFmt: MONEY }, // col 17 Earned Reserve
     ];
 
     if (hasDebug) {
@@ -74,12 +93,16 @@ export class ContractActivityTab implements IDashboardTab {
       baseColumns[16]!.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } }; // Earned Reserve
 
       // Debug-only earned breakdown columns — orange highlight
-      const orange = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFCE4D6' } };
-      baseColumns.push({ width: 22, numFmt: MONEY, fill: orange });   // col 18 Earned Amt / Contract
-      baseColumns.push({ width: 16, numFmt: PERCENT, fill: orange });  // col 19 Earn Ratio (factor)
-      baseColumns.push({ width: 16, fill: orange });                   // col 20 Elapsed Months
-      baseColumns.push({ width: 20, fill: orange });                   // col 21 Schedule Max Month
-      baseColumns.push({ width: 18, fill: orange });                   // col 22 Factor @ Elapsed (source)
+      const orange = {
+        type: 'pattern' as const,
+        pattern: 'solid' as const,
+        fgColor: { argb: 'FFFCE4D6' },
+      };
+      baseColumns.push({ width: 22, numFmt: MONEY, fill: orange }); // col 18 Earned Amt / Contract
+      baseColumns.push({ width: 16, numFmt: PERCENT, fill: orange }); // col 19 Earn Ratio (factor)
+      baseColumns.push({ width: 16, fill: orange }); // col 20 Elapsed Months
+      baseColumns.push({ width: 20, fill: orange }); // col 21 Schedule Max Month
+      baseColumns.push({ width: 18, fill: orange }); // col 22 Factor @ Elapsed (source)
     }
 
     const dynColumns = componentColumns.map(() => ({ width: 18, numFmt: MONEY }));
@@ -103,13 +126,15 @@ export class ContractActivityTab implements IDashboardTab {
       'Admin',
       'Reserve',
       'Earned Reserve',
-      ...(hasDebug ? [
-        'Earned Amt / Contract',
-        'Earn Factor (Ratio)',
-        'Elapsed Months',
-        'Schedule Max Month',
-        'Factor @ Elapsed (source)',
-      ] : []),
+      ...(hasDebug
+        ? [
+            'Earned Amt / Contract',
+            'Earn Factor (Ratio)',
+            'Elapsed Months',
+            'Schedule Max Month',
+            'Factor @ Elapsed (source)',
+          ]
+        : []),
       ...componentColumns,
     ];
     styleHeader(ws.getRow(4));
@@ -123,7 +148,7 @@ export class ContractActivityTab implements IDashboardTab {
         const dealerMatch =
           debugDealers.includes(item.dealerNumber.toLowerCase()) ||
           debugDealers.includes((item.dealerName || item.dealer).toLowerCase());
-        const agentMatch = debugAgents.includes(item.agent.toLowerCase());
+        const agentMatch = matchesAgent(item.agent, item.agentName);
         if (!dealerMatch && !agentMatch) return;
       } else {
         if (index % 33 !== 0) return;
@@ -134,7 +159,7 @@ export class ContractActivityTab implements IDashboardTab {
         item.sourceId,
         item.snapshotDate,
         item.activityDate,
-        item.effectiveDate,                          // Activation Date (moved here)
+        item.effectiveDate, // Activation Date (moved here)
         item.contractNumber,
         item.transactionType,
         item.contractStatus,
@@ -152,18 +177,17 @@ export class ContractActivityTab implements IDashboardTab {
 
       if (hasDebug) {
         // Earn factor = earnedReserve / writtenReserve (shows % of reserve earned so far)
-        const earnFactor = item.reserveAmount !== 0
-          ? item.earnedReserveAmount / item.reserveAmount
-          : null;
+        const earnFactor =
+          item.reserveAmount !== 0 ? item.earnedReserveAmount / item.reserveAmount : null;
         // Elapsed months from effective date to as-of date
-        const elapsed = item.effectiveDate
-          ? elapsedMonths(item.effectiveDate, asOf)
-          : null;
+        const elapsed = item.effectiveDate ? elapsedMonths(item.effectiveDate, asOf) : null;
 
         // The max key in the earning schedule = full contract term in months
         // If elapsed > maxScheduleMonth → code defaults to 1.0 (fully earned)
         // If elapsed <= maxScheduleMonth → code uses schedule[elapsed] (partially earned)
-        const scheduleKeys = item.earningSchedule ? Object.keys(item.earningSchedule).map(Number) : [];
+        const scheduleKeys = item.earningSchedule
+          ? Object.keys(item.earningSchedule).map(Number)
+          : [];
         const maxScheduleMonth = scheduleKeys.length > 0 ? Math.max(...scheduleKeys) : null;
 
         // What factor did the schedule actually provide at this elapsed month?
@@ -174,11 +198,11 @@ export class ContractActivityTab implements IDashboardTab {
               : `1.0 (defaulted — elapsed ${elapsed} > max ${maxScheduleMonth})`
             : 'No schedule (1.0)';
 
-        rowValues.push(item.earnedReserveAmount);                             // Earned Amt / Contract
-        rowValues.push(earnFactor as ExcelJS.CellValue);                      // Earn Factor (Ratio)
-        rowValues.push(elapsed as ExcelJS.CellValue);                         // Elapsed Months
-        rowValues.push(maxScheduleMonth as ExcelJS.CellValue);                // Schedule Max Month
-        rowValues.push(factorAtElapsed);                                      // Factor @ Elapsed (source)
+        rowValues.push(item.earnedReserveAmount); // Earned Amt / Contract
+        rowValues.push(earnFactor as ExcelJS.CellValue); // Earn Factor (Ratio)
+        rowValues.push(elapsed as ExcelJS.CellValue); // Elapsed Months
+        rowValues.push(maxScheduleMonth as ExcelJS.CellValue); // Schedule Max Month
+        rowValues.push(factorAtElapsed); // Factor @ Elapsed (source)
       }
 
       componentColumns.forEach((col) => {
@@ -200,6 +224,5 @@ export class ContractActivityTab implements IDashboardTab {
       from: 'A4',
       to: `${endColLetter}${Math.max(5, sampledCount + 4)}`,
     };
-
   }
 }

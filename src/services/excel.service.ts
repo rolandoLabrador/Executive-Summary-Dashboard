@@ -19,6 +19,9 @@ import { ClaimActivityTab } from '../tabs/claim_activity.tab';
 import { DataQualityTab } from '../tabs/data_quality.tab';
 import { DebugMathTab } from '../tabs/debug_math.tab';
 import { DefinitionsTab } from '../tabs/definitions.tab';
+import { AiAgentDebugTab } from '../tabs/ai_agent_debug.tab';
+import { AiUnderwritingIntelTab } from '../tabs/ai_underwriting_intel.tab';
+import { AiPortfolioSummaryTab } from '../tabs/ai_portfolio_summary.tab';
 
 export class ExcelService {
   constructor(private readonly config: ReportConfig) {}
@@ -30,6 +33,9 @@ export class ExcelService {
     workbook.calcProperties.fullCalcOnLoad = true;
 
     const registry = new TabRegistry();
+    registry.register(new AiPortfolioSummaryTab());
+    registry.register(new AiAgentDebugTab());
+    registry.register(new AiUnderwritingIntelTab());
     registry.register(new ExecutiveDashboardTab());
     registry.register(new DealerDashboardTab());
     registry.register(new AgentDashboardTab());
@@ -51,8 +57,18 @@ export class ExcelService {
       : [];
     const hasDebug = debugDealers.length > 0 || debugAgents.length > 0;
 
-    // Render tabs based on config and debug mode
-    const activeTabs: Record<string, TabConfig> = dashboardConfig.activeTabs as Record<string, TabConfig>;
+    // IN DEBUG MODE ONLY: The AI Macro Portfolio, Targeted Analyst, and Underwriting Intel tabs are rendered FIRST (Tabs #1, #2, and #3)
+    if (hasDebug) {
+      await registry.getTab('tab_ai_portfolio_summary')?.render(workbook, model, this.config);
+      await registry.getTab('tab_ai_agent_debug')?.render(workbook, model, this.config);
+      await registry.getTab('tab_ai_underwriting_intel')?.render(workbook, model, this.config);
+    }
+
+    // Render remaining tabs based on config and debug mode (normal order preserved)
+    const activeTabs: Record<string, TabConfig> = dashboardConfig.activeTabs as Record<
+      string,
+      TabConfig
+    >;
 
     const tabsToRender = [
       { key: 'tab_executive_summary', id: 'tab_executive_summary' },
@@ -65,16 +81,30 @@ export class ExcelService {
       { key: 'tab_claim_detail', id: 'tab_claim_detail' },
       { key: 'tab_data_quality', id: 'tab_data_quality' },
       { key: 'tab_debug_math', id: 'tab_debug_math' },
-      { key: 'tab_definitions', id: 'tab_definitions' }
+      { key: 'tab_definitions', id: 'tab_definitions' },
     ];
 
-    const forceDebugTabs = ['tab_loss_code', 'tab_monthly', 'tab_contract_detail', 'tab_claim_detail', 'tab_data_quality', 'tab_debug_math', 'tab_definitions'];
+    const forceDebugTabs = [
+      'tab_loss_code',
+      'tab_monthly',
+      'tab_contract_detail',
+      'tab_claim_detail',
+      'tab_data_quality',
+      'tab_debug_math',
+      'tab_definitions',
+    ];
 
     for (const tabInfo of tabsToRender) {
       const tabConfig = activeTabs[tabInfo.key];
       let shouldRender = false;
 
-      if (tabConfig === true || (typeof tabConfig === 'object' && tabConfig !== null && 'enabled' in tabConfig && tabConfig.enabled === true)) {
+      if (
+        tabConfig === true ||
+        (typeof tabConfig === 'object' &&
+          tabConfig !== null &&
+          'enabled' in tabConfig &&
+          tabConfig.enabled === true)
+      ) {
         shouldRender = true;
       }
 
@@ -84,11 +114,10 @@ export class ExcelService {
       }
 
       if (shouldRender) {
-        registry.getTab(tabInfo.id)?.render(workbook, model, this.config, tabConfig);
+        await registry.getTab(tabInfo.id)?.render(workbook, model, this.config, tabConfig);
       }
     }
 
     return Buffer.from(await workbook.xlsx.writeBuffer());
   }
 }
-

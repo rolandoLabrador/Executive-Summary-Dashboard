@@ -1,5 +1,9 @@
 import type * as ExcelJS from 'exceljs';
-import { type MetricValues, type PeriodComparison, type ReportingPeriod } from '../models/report.types';
+import {
+  type MetricValues,
+  type PeriodComparison,
+  type ReportingPeriod,
+} from '../models/report.types';
 
 export const COLORS = {
   navy: '17365D',
@@ -24,43 +28,79 @@ export interface MetricDefinition {
 }
 
 export const REPORT_DEFINITIONS: Record<string, string> = {
-  'Gross Income': 'Sum of Net Admin, Net Reserve, and all other non-excluded components (tax, ceding, etc.) from transactions that occurred specifically within the selected reporting period.',
-  'Underwriting Profit': 'Calculated as Earned Reserve - Claims Paid (for the selected reporting period).',
+  'Gross Income':
+    'Sum of Net Admin, Net Reserve, and all other non-excluded components (tax, ceding, etc.) from transactions that occurred specifically within the selected reporting period.',
+  'Underwriting Profit':
+    'Calculated as Earned Reserve - Claims Paid (for the selected reporting period).',
   'Earned Loss Ratio': 'Claims Paid divided by Earned Reserve (for the selected reporting period).',
-  'Earned Reserve': 'Calculated using written/cancelled amounts from transactions within the reporting period. For contracts ultimately active as of the run date, calculated dynamically using the earning schedule curve. For contracts ultimately cancelled as of the run date, calculated as MAX(0, Written Reserve - Cancelled Reserve).',
-  'Active Contracts': 'Distinct contracts whose metadata.ActivationDate falls within the reporting period AND whose absolute latest historical snapshot has ContractStatus A (and is not a cancellation). Expired contracts (Status E) are explicitly excluded from this count.',
-  'Expired Contracts': 'Contracts with ContractStatus E are treated mathematically as New Business (written contracts) that have naturally reached the end of their term. They are included in Contracts Written and Earned Reserve calculations for their respective periods, but are never counted as Active.',
-  'Cancellations': 'Distinct cancellation contracts whose metadata.CancelBillDate falls within the reporting period. This is a measure of cancellation activity during the period, not a subtraction from the active cohort.',
-  'Net Written Reserve': 'Sum of written reserve components minus cancelled reserve components from transactions that occurred specifically within the selected reporting period. Calculated for all contracts regardless of their current active/cancelled status.',
-  'Net Admin': 'Sum of written admin components minus cancelled admin components from transactions that occurred specifically within the selected reporting period. Importantly, this sum ONLY includes amounts for contracts that are currently Active (Status A and not cancelled) as of the report run date.',
-  'Cancellation Timing': 'Cancellation activity is recognized exclusively from metadata.CancelBillDate. Blank or invalid Cancel Bill Date records are excluded and reported as data-quality errors.',
-  'Contract Timing': 'Written contract activity is recognized exclusively from metadata.ActivationDate. Blank or invalid Activation Date records are excluded and reported as data-quality errors.',
-  'Current Month': 'Latest fully completed month, compared with the same calendar month in the prior year.',
-  'Year to Date': 'January 1 through the latest completed month, compared with the same prior-year months.',
-  'Rolling 12 Months': 'Latest completed month plus the preceding 11 months, compared with the preceding 12-month period.',
-  'Prior Full Calendar Year': 'January 1 through December 31 of the calendar year immediately before the report as-of year.',
-  'Inception to Date (ITD)': 'All recognized activity from the very first recorded date (inception) up to the latest completed month. ITD Loss Ratio is the total claims paid since inception divided by the ITD Earned Reserve.',
-  'Excluded Components': 'Broadly excludes commission section plus components containing DEALER, DLR, COMMISSION, COMM, F&I, PACK, LOANPMT, or LOANPAYMENT. Additionally, when calculating Reserve, specifically excludes CLIPFEE, PREMIUMTAX, CEDINGFEE, ADMIN, SLUSH, and OEM TRANSPORT RESRVE. When calculating Admin, specifically excludes ROADSIDEADMIN, OTHERCOMM, PREMTAX, AGENTNCB, and ROADSIDE AKMC.',
-  'Claims': 'Paid claim/payment records with a non-zero Total Paid Amount.',
-  'Loss Code Dashboard': 'Paid claim amounts grouped by normalized Loss Code. The KPI section shows current month, year-to-date, and rolling-12 results; detail rows are ranked by rolling-12 paid amount.',
-  'Loss Code Display Threshold': 'Loss codes contributing less than 2% of rolling-12 paid amount are omitted from the pie chart and rolling-12 detail. Their paid amounts and claims remain included in dashboard KPI totals.',
-  'Top Vehicle Makes': 'The ten vehicle Make values with the highest deduplicated rolling-12 paid claim amount. Claim Count is distinct by Claim Number within each make; blank Make values remain visible as UNMAPPED MAKE.',
-  'Loss Code Product': 'The pie-chart legend uses the claim Coverage Name as the product. Multiple applicable coverage names are listed without selecting one arbitrarily; blanks remain visible as Unmapped Coverage Name.',
-  'Loss Code Pie Chart': 'Positive rolling-12 paid amounts. Every paid loss code appears as a separate slice. The color-matched legend shows its exact loss code, component description, product Coverage Name, paid amount, and share. Negative adjustments remain in the detail table.',
-  'Loss Code Claim Count': 'Distinct Claim Number within each loss code. A claim with multiple loss codes appears once in each applicable row but only once in the overall KPI.',
-  'Unmapped Loss Code': 'Paid claim records with a blank Loss Code are retained under UNMAPPED so dashboard totals reconcile to paid-claim totals.',
-  'Snapshot Deduplication': 'Contract and cancellation snapshots retain the newest record per Contract# and transaction type. MongoDB _id is used only for traceability.',
-  'Claim Deduplication': 'Claim count uses distinct Claim Number. Paid amounts retain the newest snapshot per payment/detail signature: claim, paid date, check, method, payee, loss code, RO, and amount.',
-  'Claim Attribution': 'Dealer number, agent number, and coverage code come directly from the claim; contract data is used only when a claim dimension is missing. Names are fallback values.',
-  'Contracts Written': 'Gross original contracts grouped by metadata.ActivationDate. When the new-business source is missing, a cancellation may supply an auditable written reference that retains canceled status and is never active.',
-  'Contract Count Reconciliation': 'For the same ActivationDate cohort and as-of cutoff: Written Contracts = Active Contracts + contracts from that cohort whose latest state is canceled. Cancellations is grouped by CancelBillDate and is not generally the cancellation term in this equation.',
-  'Privacy': 'Customer identity, contact, address, and VIN fields are excluded at MongoDB extraction.',
-  'Average admin': 'Calculated as Net Admin (from the reporting period) divided by Active Contracts (from the reporting period). If a cohort has 0 Active Contracts in the reporting period (e.g. only cancelled/expired contracts or claims), this value is left intentionally blank to avoid mathematical errors.',
-  'Rule: Low Admin Flag': 'If the calculated Average Admin per contract is positive but less than $20.00, the cell is highlighted in bold red font and flagged with a tooltip/note.',
-  'Rule: Loss Ratio Data Bars': 'Loss ratio cells contain embedded data bars that visually indicate performance: Green (< 85%), Amber (85% - 100%), and Red (> 100%).',
-  'Rule: High Loss Ratio Highlights': 'Row-level earned loss ratios exceeding the warning threshold are highlighted yellow; those exceeding the high threshold are highlighted red.',
+  '% Earned':
+    'Calculated as Earned Reserve divided by Net Written Reserve (for the selected reporting period). Measures the cumulative earned portion of the written reserve.',
+  'Earned Reserve':
+    'Calculated using written/cancelled amounts from transactions within the reporting period. For contracts ultimately active as of the run date, calculated dynamically using the earning schedule curve. For contracts ultimately cancelled as of the run date, calculated as MAX(0, Written Reserve - Cancelled Reserve).',
+  'Active Contracts':
+    'Distinct contracts whose metadata.ActivationDate falls within the reporting period AND whose absolute latest historical snapshot has ContractStatus A (and is not a cancellation). Expired contracts (Status E) are explicitly excluded from this count.',
+  'Expired Contracts':
+    'Contracts with ContractStatus E are treated mathematically as New Business (written contracts) that have naturally reached the end of their term. They are included in Contracts Written and Earned Reserve calculations for their respective periods, but are never counted as Active.',
+  Cancellations:
+    'Distinct cancellation contracts whose metadata.CancelBillDate falls within the reporting period. This is a measure of cancellation activity during the period, not a subtraction from the active cohort.',
+  'Net Written Reserve':
+    'Sum of written reserve components minus cancelled reserve components from transactions that occurred specifically within the selected reporting period. Calculated for all contracts regardless of their current active/cancelled status.',
+  'Net Admin':
+    'Sum of written admin components minus cancelled admin components from transactions that occurred specifically within the selected reporting period. Importantly, this sum ONLY includes amounts for contracts that are currently Active (Status A and not cancelled) as of the report run date.',
+  'Cancellation Timing':
+    'Cancellation activity is recognized exclusively from metadata.CancelBillDate. Blank or invalid Cancel Bill Date records are excluded and reported as data-quality errors.',
+  'Contract Timing':
+    'Written contract activity is recognized exclusively from metadata.ActivationDate. Blank or invalid Activation Date records are excluded and reported as data-quality errors.',
+  'Current Month':
+    'Latest fully completed month, compared with the same calendar month in the prior year.',
+  'Year to Date':
+    'January 1 through the latest completed month, compared with the same prior-year months.',
+  'Rolling 12 Months':
+    'Latest completed month plus the preceding 11 months, compared with the preceding 12-month period.',
+  'Prior Full Calendar Year':
+    'January 1 through December 31 of the calendar year immediately before the report as-of year.',
+  'Inception to Date (ITD)':
+    'All recognized activity from the very first recorded date (inception) up to the latest completed month. ITD Loss Ratio is the total claims paid since inception divided by the ITD Earned Reserve.',
+  'Excluded Components':
+    'Broadly excludes commission section plus components containing DEALER, DLR, COMMISSION, COMM, F&I, PACK, LOANPMT, or LOANPAYMENT. Additionally, when calculating Reserve, specifically excludes CLIPFEE, PREMIUMTAX, CEDINGFEE, ADMIN, SLUSH, and OEM TRANSPORT RESRVE. When calculating Admin, specifically excludes ROADSIDEADMIN, OTHERCOMM, PREMTAX, AGENTNCB, and ROADSIDE AKMC.',
+  Claims: 'Paid claim/payment records with a non-zero Total Paid Amount.',
+  'Loss Code Dashboard':
+    'Paid claim amounts grouped by normalized Loss Code. The KPI section shows current month, year-to-date, and rolling-12 results; detail rows are ranked by rolling-12 paid amount.',
+  'Loss Code Display Threshold':
+    'Loss codes contributing less than 2% of rolling-12 paid amount are omitted from the pie chart and rolling-12 detail. Their paid amounts and claims remain included in dashboard KPI totals.',
+  'Top Vehicle Makes':
+    'The ten vehicle Make values with the highest deduplicated rolling-12 paid claim amount. Claim Count is distinct by Claim Number within each make; blank Make values remain visible as UNMAPPED MAKE.',
+  'Loss Code Product':
+    'The pie-chart legend uses the claim Coverage Name as the product. Multiple applicable coverage names are listed without selecting one arbitrarily; blanks remain visible as Unmapped Coverage Name.',
+  'Loss Code Pie Chart':
+    'Positive rolling-12 paid amounts. Every paid loss code appears as a separate slice. The color-matched legend shows its exact loss code, component description, product Coverage Name, paid amount, and share. Negative adjustments remain in the detail table.',
+  'Loss Code Claim Count':
+    'Distinct Claim Number within each loss code. A claim with multiple loss codes appears once in each applicable row but only once in the overall KPI.',
+  'Unmapped Loss Code':
+    'Paid claim records with a blank Loss Code are retained under UNMAPPED so dashboard totals reconcile to paid-claim totals.',
+  'Snapshot Deduplication':
+    'Contract and cancellation snapshots retain the newest record per Contract# and transaction type. MongoDB _id is used only for traceability.',
+  'Claim Deduplication':
+    'Claim count uses distinct Claim Number. Paid amounts retain the newest snapshot per payment/detail signature: claim, paid date, check, method, payee, loss code, RO, and amount.',
+  'Claim Attribution':
+    'Dealer number, agent number, and coverage code come directly from the claim; contract data is used only when a claim dimension is missing. Names are fallback values.',
+  'Contracts Written':
+    'Gross original contracts grouped by metadata.ActivationDate. When the new-business source is missing, a cancellation may supply an auditable written reference that retains canceled status and is never active.',
+  'Contract Count Reconciliation':
+    'For the same ActivationDate cohort and as-of cutoff: Written Contracts = Active Contracts + contracts from that cohort whose latest state is canceled. Cancellations is grouped by CancelBillDate and is not generally the cancellation term in this equation.',
+  Privacy:
+    'Customer identity, contact, address, and VIN fields are excluded at MongoDB extraction.',
+  'Average admin':
+    'Calculated as Net Admin (from the reporting period) divided by Active Contracts (from the reporting period). If a cohort has 0 Active Contracts in the reporting period (e.g. only cancelled/expired contracts or claims), this value is left intentionally blank to avoid mathematical errors.',
+  'Rule: Low Admin Flag':
+    'If the calculated Average Admin per contract is positive but less than $20.00, the cell is highlighted in bold red font and flagged with a tooltip/note.',
+  'Rule: Loss Ratio Data Bars':
+    'Loss ratio cells contain embedded data bars that visually indicate performance: Green (< 85%), Amber (85% - 100%), and Red (> 100%).',
+  'Rule: High Loss Ratio Highlights':
+    'Row-level earned loss ratios exceeding the warning threshold are highlighted yellow; those exceeding the high threshold are highlighted red.',
   'Rule: Agent Display Limit': 'The Agent Dashboard displays ALL agents without any row limit.',
-  'Rule: Dealer Display Limit': 'The Dealer Dashboard is limited to displaying only the top 20 dealers (configurable via TOP_DEALER_COUNT).'
+  'Rule: Dealer Display Limit':
+    'The Dealer Dashboard is limited to displaying only the top 20 dealers (configurable via TOP_DEALER_COUNT).',
 };
 
 export const KPI_DEFINITIONS: MetricDefinition[] = [
@@ -75,6 +115,7 @@ export const KPI_DEFINITIONS: MetricDefinition[] = [
   { label: 'Claims Paid', key: 'claimsPaid', format: MONEY },
   { label: 'Underwriting Profit', key: 'underwritingProfit', format: MONEY },
   { label: 'Earned Loss Ratio', key: 'earnedLossRatio', format: PERCENT },
+  { label: '% Earned', key: 'percentEarned', format: PERCENT },
   { label: 'Cancellation Rate', key: 'cancellationRate', format: PERCENT },
 ];
 
@@ -97,7 +138,10 @@ export function comparisonHeading(label: string, comparison: PeriodComparison): 
   );
 }
 
-export function dataBarRule(priority: number, colorHex: string = COLORS.blue): ExcelJS.ConditionalFormattingRule {
+export function dataBarRule(
+  priority: number,
+  colorHex: string = COLORS.blue,
+): ExcelJS.ConditionalFormattingRule {
   const rule: ExcelJS.DataBarRuleType & { color: Partial<ExcelJS.Color> } = {
     type: 'dataBar',
     priority,
@@ -111,7 +155,12 @@ export function dataBarRule(priority: number, colorHex: string = COLORS.blue): E
   return rule;
 }
 
-export function title(ws: ExcelJS.Worksheet, value: string, subtitle?: string, endColumn = 12): void {
+export function title(
+  ws: ExcelJS.Worksheet,
+  value: string,
+  subtitle?: string,
+  endColumn = 12,
+): void {
   ws.mergeCells(1, 1, 1, endColumn);
   const cell = ws.getCell('A1');
   cell.value = value;
@@ -131,7 +180,7 @@ export function styleHeaderCell(cell: ExcelJS.Cell): void {
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
   cell.alignment = { vertical: 'middle', horizontal: 'center' };
   cell.border = { bottom: { style: 'thin', color: { argb: COLORS.navy } } };
-  
+
   if (cell.value && typeof cell.value === 'string') {
     const definition = REPORT_DEFINITIONS[cell.value];
     if (definition) {
@@ -201,14 +250,14 @@ export function writeComparison(
     [2, 3, 4].forEach((column) => {
       row.getCell(column).numFmt = definition.format;
     });
-    
+
     // RULE 1: Visual Flag for Avg Admin / Contract < 20
     const currentCell = row.getCell(2);
     if (definition.key === 'adminPerContract' && current > 0 && current < 20) {
       currentCell.font = { color: { argb: COLORS.red }, bold: true };
       currentCell.note = 'FLAGGED: Avg Admin / Contract is below $20.00';
     }
-    
+
     const cell = row.getCell(5);
     cell.numFmt = PERCENT;
     if (changePercent !== null && changePercent !== 0) {
@@ -245,11 +294,11 @@ export function writePeriodSnapshot(
     const row = ws.getRow(startRow + 2 + index);
     const val = value(period.values, definition.key);
     row.values = [definition.label, val, '', '', ''];
-    
+
     const currentCell = row.getCell(2);
     currentCell.numFmt = definition.format;
     ws.mergeCells(startRow + 2 + index, 2, startRow + 2 + index, 5);
-    
+
     // RULE 1: Visual Flag for Average admin < 20
     if (definition.key === 'adminPerContract' && val > 0 && val < 20) {
       currentCell.font = { color: { argb: COLORS.red }, bold: true };
@@ -260,9 +309,9 @@ export function writePeriodSnapshot(
 }
 
 // Restored Loss Code helpers
-import { type LossCodeMetric } from "../models/report.types";
+import { type LossCodeMetric } from '../models/report.types';
 export const MIN_LOSS_CODE_SHARE = 0.02;
-export const PIE_COLORS = ["2F75B5", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47", "8064A2"];
+export const PIE_COLORS = ['2F75B5', 'ED7D31', 'A5A5A5', 'FFC000', '5B9BD5', '70AD47', '8064A2'];
 export interface LossCodeChartSegment {
   code: string;
   description: string;
@@ -323,4 +372,3 @@ export function lossCodeChartSegments(rows: LossCodeMetric[]): LossCodeChartSegm
 export function visibleLossCodeRows(rows: LossCodeMetric[]): LossCodeMetric[] {
   return rows.filter((row) => (row.rolling12PaidShare ?? 0) >= MIN_LOSS_CODE_SHARE);
 }
-

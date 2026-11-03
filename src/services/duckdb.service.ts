@@ -347,7 +347,9 @@ export class DuckDBService {
    * Cross-checks DuckDB ingested counts against upstream AuditDB counts.
    * Proves zero volumetric data leaks across the entire pipeline.
    */
-  async verifyVolumetricIntegrity(audits: readonly PipelineAuditRecord[]): Promise<AuditVerificationResult> {
+  async verifyVolumetricIntegrity(
+    audits: readonly PipelineAuditRecord[],
+  ): Promise<AuditVerificationResult> {
     const [contractStats] = await this.query<{ writtenCount: bigint; cancelCount: bigint }>(`
       SELECT 
         COUNT(CASE WHEN transactionType != 'Cancellation' THEN 1 END) AS writtenCount,
@@ -373,7 +375,9 @@ export class DuckDBService {
       else if (audit.jobType === 'Claim') duckdbCount = claimCount;
 
       const variance = duckdbCount - audit.counts.uploadedCount;
-      const isMatch = variance === 0 && (audit.reconciliation.status === 'PASSED' || audit.reconciliation.isMatch);
+      const isMatch =
+        variance === 0 &&
+        (audit.reconciliation.status === 'PASSED' || audit.reconciliation.isMatch);
 
       if (!isMatch) isClean = false;
 
@@ -458,7 +462,7 @@ export class DuckDBService {
     const activeContracts = Number(activeRow?.activeCount ?? BigInt(0));
     const adminWritten = contractSums?.adminWritten ?? 0;
     const adminCancelled = contractSums?.adminCancelled ?? 0;
-    const netAdmin = activeRow?.netAdminActive ?? (adminWritten - adminCancelled);
+    const netAdmin = activeRow?.netAdminActive ?? adminWritten - adminCancelled;
     const reserveWritten = contractSums?.reserveWritten ?? 0;
     const reserveCancelled = contractSums?.reserveCancelled ?? 0;
     const netReserve = reserveWritten - reserveCancelled;
@@ -471,6 +475,7 @@ export class DuckDBService {
     const earnedReserve = netReserve;
     const underwritingProfit = earnedReserve - claimsPaid;
     const earnedLossRatio = earnedReserve > 0 ? claimsPaid / earnedReserve : null;
+    const percentEarned = netReserve > 0 ? earnedReserve / netReserve : null;
     const cancellationRate = contractsWritten > 0 ? contractsCancelled / contractsWritten : null;
     const adminPerContract = activeContracts > 0 ? netAdmin / activeContracts : null;
 
@@ -493,6 +498,7 @@ export class DuckDBService {
       grossIncomeCancelled,
       grossIncome,
       earnedLossRatio,
+      percentEarned,
       cancellationRate,
       adminPerContract,
     };
@@ -553,6 +559,7 @@ export class DuckDBService {
       grossIncomeCancelled: 0,
       grossIncome: 0,
       earnedLossRatio: null,
+      percentEarned: null,
       cancellationRate: null,
       adminPerContract: null,
     }));

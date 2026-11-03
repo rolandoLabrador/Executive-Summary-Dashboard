@@ -5,33 +5,33 @@ let content = fs.readFileSync('src/services/excel.service.ts', 'utf8');
 // 1. Remove buildThreeTierDimensionSheet completely
 let start = content.indexOf('function buildThreeTierDimensionSheet(');
 if (start > -1) {
-    let end = content.indexOf('];\n}', start);
-    if (end === -1) end = content.indexOf('];\r\n}', start);
-    if (end > -1) content = content.substring(0, start) + content.substring(end + 5);
+  let end = content.indexOf('];\n}', start);
+  if (end === -1) end = content.indexOf('];\r\n}', start);
+  if (end > -1) content = content.substring(0, start) + content.substring(end + 5);
 }
 
 // 2. Remove this.buildExecutive
 start = content.indexOf('private buildExecutive(');
 if (start > -1) {
-    let end = content.indexOf('ws.columns = [', start);
-    if (end > -1) {
-        end = content.indexOf('];\n  }', end);
-        if (end === -1) end = content.indexOf('];\r\n  }', end);
-        if (end > -1) content = content.substring(0, start) + content.substring(end + 7);
-    }
+  let end = content.indexOf('ws.columns = [', start);
+  if (end > -1) {
+    end = content.indexOf('];\n  }', end);
+    if (end === -1) end = content.indexOf('];\r\n  }', end);
+    if (end > -1) content = content.substring(0, start) + content.substring(end + 7);
+  }
 }
 
 // 3. Remove styleHeaderRange and styleHeaderCell
 start = content.indexOf('function styleHeaderRange(');
 if (start > -1) {
-    let end = content.indexOf('}', content.indexOf('}', start) + 1) + 1;
-    content = content.substring(0, start) + content.substring(end);
+  let end = content.indexOf('}', content.indexOf('}', start) + 1) + 1;
+  content = content.substring(0, start) + content.substring(end);
 }
 
 start = content.indexOf('function styleHeaderCell(');
 if (start > -1) {
-    let end = content.indexOf('}', start) + 1;
-    content = content.substring(0, start) + content.substring(end);
+  let end = content.indexOf('}', start) + 1;
+  content = content.substring(0, start) + content.substring(end);
 }
 
 // 4. Add imports

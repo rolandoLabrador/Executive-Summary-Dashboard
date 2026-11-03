@@ -31,7 +31,13 @@ function ratio(name: string, fallback: number): number {
 
 export function parseAsOfDate(args: string[]): Date {
   const index = args.indexOf('--as-of');
-  const raw = index >= 0 ? args[index + 1] : undefined;
+  let raw = index >= 0 ? args[index + 1] : undefined;
+  if (!raw) {
+    const dateArg = args.find((a) => /^\d{4}-\d{2}-\d{2}$/.test(a));
+    if (dateArg) {
+      raw = dateArg;
+    }
+  }
   const date = raw ? new Date(`${raw}T23:59:59.999`) : new Date();
   if (Number.isNaN(date.getTime())) {
     throw new Error('--as-of must use YYYY-MM-DD format');
@@ -49,7 +55,17 @@ export function loadMongoSourceConfig(): MongoSourceConfig {
     claimCollection: process.env.CLAIM_COLLECTION?.trim() || 'ClaimData_Claim',
     auditDb: process.env.AUDIT_DB?.trim() || 'AuditDB',
     auditCollection: process.env.AUDIT_COLLECTION?.trim() || 'DataReconciliationAudit',
+    snapshotDb:
+      process.env.MONGODB_SNAPSHOT_DB?.trim() ||
+      process.env.CONTRACT_DB?.trim() ||
+      'ContractDataDB',
+    snapshotCollection:
+      process.env.MONGODB_SNAPSHOT_COLLECTION?.trim() || 'executive_report_snapshots',
   };
+}
+
+export function loadSnapshotCollection(): string {
+  return process.env.MONGODB_SNAPSHOT_COLLECTION?.trim() || 'executive_report_snapshots';
 }
 
 export function loadReportConfig(args: string[]): ReportConfig {

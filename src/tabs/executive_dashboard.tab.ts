@@ -4,10 +4,14 @@ import { type ReportModel, type ReportConfig, type MetricValues } from '../model
 import rawConfig from './dashboard.config.json';
 
 interface DashboardConfig {
-  activeTabs?: Record<string, boolean | {
-    enabled?: boolean;
-    tables?: Record<string, boolean>;
-  }>;
+  activeTabs?: Record<
+    string,
+    | boolean
+    | {
+        enabled?: boolean;
+        tables?: Record<string, boolean>;
+      }
+  >;
 }
 const dashboardConfig = rawConfig as unknown as DashboardConfig;
 import {
@@ -22,7 +26,7 @@ import {
   writeComparison,
   writePeriodSnapshot,
   value,
-  dataBarRule
+  dataBarRule,
 } from '../utils/excel.utils';
 
 export class ExecutiveDashboardTab implements IDashboardTab {
@@ -37,7 +41,7 @@ export class ExecutiveDashboardTab implements IDashboardTab {
       `Current reporting month: ${formatDateRange(model.currentMonth.currentStart, model.currentMonth.currentEnd)} | Paid claims / net written reserve`,
       19,
     );
-    
+
     // Read granular table toggles from the JSON configuration
     const tabConfig = dashboardConfig.activeTabs?.[this.id];
     const tables = (typeof tabConfig === 'object' ? tabConfig?.tables : {}) || {};
@@ -53,7 +57,7 @@ export class ExecutiveDashboardTab implements IDashboardTab {
         'Prior Year',
       );
     }
-    
+
     if (tables.yearToDateComparison !== false) {
       row = writeComparison(
         ws,
@@ -63,16 +67,11 @@ export class ExecutiveDashboardTab implements IDashboardTab {
         'Prior Year',
       );
     }
-    
+
     if (tables.inceptionToDateSnapshot !== false) {
-      row = writePeriodSnapshot(
-        ws,
-        row,
-        'INCEPTION TO DATE',
-        model.inceptionToDate,
-      );
+      row = writePeriodSnapshot(ws, row, 'INCEPTION TO DATE', model.inceptionToDate);
     }
-    
+
     if (tables.priorYearSnapshot !== false) {
       writePeriodSnapshot(
         ws,
@@ -81,13 +80,13 @@ export class ExecutiveDashboardTab implements IDashboardTab {
         model.priorCalendarYear,
       );
     }
-    
+
     if (tables.trend12Month !== false) {
       this.writeExecutiveTrend(ws, model);
     }
-    
+
     this.writeWorstDealers(ws, model, tables);
-    
+
     ws.columns = [
       { width: 24 },
       { width: 18 },
@@ -116,7 +115,7 @@ export class ExecutiveDashboardTab implements IDashboardTab {
     const firstColumn = 8;
     // We add 1 to the length to account for the ITD column
     const lastColumn = firstColumn + months.length;
-    
+
     ws.mergeCells(4, firstColumn, 4, lastColumn);
     const heading = ws.getCell(4, firstColumn);
     heading.value = '12-MONTH TREND & INCEPTION TO DATE';
@@ -152,7 +151,8 @@ export class ExecutiveDashboardTab implements IDashboardTab {
       { row: 9, label: 'Earned Reserve', key: 'earnedReserve', format: MONEY },
       { row: 11, label: 'Claims Paid', key: 'claimsPaid', format: MONEY },
       { row: 13, label: 'Earned Loss Ratio', key: 'earnedLossRatio', format: PERCENT },
-      { row: 15, label: 'Net Admin', key: 'netAdmin', format: MONEY },
+      { row: 15, label: '% Earned', key: 'percentEarned', format: PERCENT },
+      { row: 17, label: 'Net Admin', key: 'netAdmin', format: MONEY },
     ];
 
     trends.forEach(({ row, label, key, format }, trendIndex) => {
@@ -160,7 +160,7 @@ export class ExecutiveDashboardTab implements IDashboardTab {
       const labelCell = ws.getCell(row - 1, firstColumn);
       labelCell.value = label;
       labelCell.font = { bold: true, color: { argb: COLORS.darkGray } };
-      
+
       // Write month values
       months.forEach((month, index) => {
         const cell = ws.getCell(row, firstColumn + index);
@@ -204,13 +204,13 @@ export class ExecutiveDashboardTab implements IDashboardTab {
 
     const startRow = 20;
     const firstColumn = 8;
-    
+
     // Filter ITD dealers: must have earned reserve > 0, claims paid > 0, and AT LEAST 5 CONTRACTS
     const dealers = [...model.itdDealers].filter(
       (d) =>
         d.earnedReserve > 0 &&
         d.claimsPaid > 0 &&
-        (d.contractsWritten >= 5 || d.activeContracts >= 5 || d.netContracts >= 5)
+        (d.contractsWritten >= 5 || d.activeContracts >= 5 || d.netContracts >= 5),
     );
     dealers.sort((a, b) => (b.earnedLossRatio || 0) - (a.earnedLossRatio || 0));
     const worst = dealers.slice(0, 20);
@@ -236,8 +236,9 @@ export class ExecutiveDashboardTab implements IDashboardTab {
     headerRow.getCell(16).value = 'Net Admin';
     headerRow.getCell(17).value = 'Earned Reserve';
     headerRow.getCell(18).value = 'Earned Loss Ratio';
+    headerRow.getCell(19).value = '% Earned';
 
-    [8, 9, 12, 13, 14, 15, 16, 17, 18].forEach((col) => {
+    [8, 9, 12, 13, 14, 15, 16, 17, 18, 19].forEach((col) => {
       const cell = headerRow.getCell(col);
       cell.font = { bold: true, color: { argb: COLORS.white } };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
@@ -280,8 +281,15 @@ export class ExecutiveDashboardTab implements IDashboardTab {
       lossRatioCell.value = dealer.earnedLossRatio;
       lossRatioCell.numFmt = PERCENT;
       lossRatioCell.alignment = { horizontal: 'center' };
+
+      const pctEarnedCell = row.getCell(19);
+      pctEarnedCell.value =
+        dealer.percentEarned ??
+        (dealer.netReserve > 0 ? dealer.earnedReserve / dealer.netReserve : null);
+      pctEarnedCell.numFmt = PERCENT;
+      pctEarnedCell.alignment = { horizontal: 'center' };
     });
-    
+
     if (worst.length > 0) {
       ws.addConditionalFormatting({
         ref: `R${startRow + 2}:R${startRow + 1 + worst.length}`,

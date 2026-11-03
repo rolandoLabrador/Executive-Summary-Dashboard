@@ -3,53 +3,54 @@ const fs = require('fs');
 let excelCode = fs.readFileSync('src/services/excel.service.ts', 'utf8');
 
 function extractMethod(methodName, className, fileName, argsSig, imports) {
-    const startPattern = `private ${methodName}(${argsSig}): void {`;
-    let startIdx = excelCode.indexOf(startPattern);
-    
-    // Fallback without void
-    if (startIdx === -1) {
-        startIdx = excelCode.indexOf(`private ${methodName}(${argsSig}) {`);
+  const startPattern = `private ${methodName}(${argsSig}): void {`;
+  let startIdx = excelCode.indexOf(startPattern);
+
+  // Fallback without void
+  if (startIdx === -1) {
+    startIdx = excelCode.indexOf(`private ${methodName}(${argsSig}) {`);
+  }
+
+  if (startIdx === -1) {
+    console.log(`Could not find ${methodName}`);
+    return;
+  }
+
+  let endIdx = -1;
+  let braceCount = 0;
+  let foundFirstBrace = false;
+
+  for (let i = startIdx; i < excelCode.length; i++) {
+    if (excelCode[i] === '{') {
+      braceCount++;
+      foundFirstBrace = true;
+    } else if (excelCode[i] === '}') {
+      braceCount--;
     }
 
-    if (startIdx === -1) {
-        console.log(`Could not find ${methodName}`);
-        return;
+    if (foundFirstBrace && braceCount === 0) {
+      endIdx = i;
+      break;
     }
+  }
 
-    let endIdx = -1;
-    let braceCount = 0;
-    let foundFirstBrace = false;
+  if (endIdx === -1) {
+    console.log(`Could not find end of ${methodName}`);
+    return;
+  }
 
-    for (let i = startIdx; i < excelCode.length; i++) {
-        if (excelCode[i] === '{') {
-            braceCount++;
-            foundFirstBrace = true;
-        } else if (excelCode[i] === '}') {
-            braceCount--;
-        }
+  const methodBody = excelCode
+    .substring(startIdx, endIdx + 1)
+    .replace(new RegExp(`private ${methodName}\\([\\s\\S]*?\\)(: void)? \\{`), '');
 
-        if (foundFirstBrace && braceCount === 0) {
-            endIdx = i;
-            break;
-        }
-    }
+  let renderSig = `workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, tabConfig: any`;
+  if (argsSig.indexOf('model') === -1) {
+    renderSig = `workbook: ExcelJS.Workbook, _model: ReportModel, _config: ReportConfig, _tabConfig: any`;
+  } else {
+    renderSig = `workbook: ExcelJS.Workbook, model: ReportModel, _config: ReportConfig, _tabConfig: any`;
+  }
 
-    if (endIdx === -1) {
-        console.log(`Could not find end of ${methodName}`);
-        return;
-    }
-
-    const methodBody = excelCode.substring(startIdx, endIdx + 1)
-        .replace(new RegExp(`private ${methodName}\\([\\s\\S]*?\\)(: void)? \\{`), '');
-    
-    let renderSig = `workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, tabConfig: any`;
-    if (argsSig.indexOf('model') === -1) {
-        renderSig = `workbook: ExcelJS.Workbook, _model: ReportModel, _config: ReportConfig, _tabConfig: any`;
-    } else {
-        renderSig = `workbook: ExcelJS.Workbook, model: ReportModel, _config: ReportConfig, _tabConfig: any`;
-    }
-
-    const tabCode = `${imports}
+  const tabCode = `${imports}
 import { IDashboardTab } from './IDashboardTab';
 import { configureWorksheet, title, styleHeader, formatDate, formatDateRange, COLORS, MONEY, INTEGER, formatPercent } from '../utils/excel.utils';
 
@@ -63,44 +64,82 @@ export class ${className} implements IDashboardTab {
 }
 `;
 
-    fs.writeFileSync(`src/tabs/${fileName}`, tabCode);
-    console.log(`Saved ${className} to ${fileName}`);
-    
-    // Remove from excel.service.ts
-    excelCode = excelCode.substring(0, startIdx) + excelCode.substring(endIdx + 1);
+  fs.writeFileSync(`src/tabs/${fileName}`, tabCode);
+  console.log(`Saved ${className} to ${fileName}`);
+
+  // Remove from excel.service.ts
+  excelCode = excelCode.substring(0, startIdx) + excelCode.substring(endIdx + 1);
 }
 
 const standardImports = `import * as ExcelJS from 'exceljs';
 import { type ReportModel, type ReportConfig } from '../models/report.types';`;
 
-extractMethod('buildMonthly', 'MonthlyTrendsTab', 'monthly_trends.tab.ts', 'workbook: ExcelJS.Workbook, model: ReportModel', standardImports);
-extractMethod('buildContractDetail', 'ContractActivityTab', 'contract_activity.tab.ts', 'workbook: ExcelJS.Workbook, model: ReportModel', standardImports);
-extractMethod('buildClaimDetail', 'ClaimActivityTab', 'claim_activity.tab.ts', 'workbook: ExcelJS.Workbook, model: ReportModel', standardImports);
-extractMethod('buildDataQuality', 'DataQualityTab', 'data_quality.tab.ts', 'workbook: ExcelJS.Workbook, model: ReportModel', standardImports);
-extractMethod('buildDebugMath', 'DebugMathTab', 'debug_math.tab.ts', 'workbook: ExcelJS.Workbook, model: ReportModel', standardImports);
-extractMethod('buildDefinitions', 'DefinitionsTab', 'definitions.tab.ts', 'workbook: ExcelJS.Workbook', standardImports);
+extractMethod(
+  'buildMonthly',
+  'MonthlyTrendsTab',
+  'monthly_trends.tab.ts',
+  'workbook: ExcelJS.Workbook, model: ReportModel',
+  standardImports,
+);
+extractMethod(
+  'buildContractDetail',
+  'ContractActivityTab',
+  'contract_activity.tab.ts',
+  'workbook: ExcelJS.Workbook, model: ReportModel',
+  standardImports,
+);
+extractMethod(
+  'buildClaimDetail',
+  'ClaimActivityTab',
+  'claim_activity.tab.ts',
+  'workbook: ExcelJS.Workbook, model: ReportModel',
+  standardImports,
+);
+extractMethod(
+  'buildDataQuality',
+  'DataQualityTab',
+  'data_quality.tab.ts',
+  'workbook: ExcelJS.Workbook, model: ReportModel',
+  standardImports,
+);
+extractMethod(
+  'buildDebugMath',
+  'DebugMathTab',
+  'debug_math.tab.ts',
+  'workbook: ExcelJS.Workbook, model: ReportModel',
+  standardImports,
+);
+extractMethod(
+  'buildDefinitions',
+  'DefinitionsTab',
+  'definitions.tab.ts',
+  'workbook: ExcelJS.Workbook',
+  standardImports,
+);
 
 // Also manually remove the hardcoded buildLossCodeDashboard since it's already extracted
-const lossStart = excelCode.indexOf('private buildLossCodeDashboard(workbook: ExcelJS.Workbook, model: ReportModel): void {');
+const lossStart = excelCode.indexOf(
+  'private buildLossCodeDashboard(workbook: ExcelJS.Workbook, model: ReportModel): void {',
+);
 if (lossStart > -1) {
-    let lossEnd = -1;
-    let braceCount = 0;
-    let foundFirstBrace = false;
-    for (let i = lossStart; i < excelCode.length; i++) {
-        if (excelCode[i] === '{') {
-            braceCount++;
-            foundFirstBrace = true;
-        } else if (excelCode[i] === '}') {
-            braceCount--;
-        }
-        if (foundFirstBrace && braceCount === 0) {
-            lossEnd = i;
-            break;
-        }
+  let lossEnd = -1;
+  let braceCount = 0;
+  let foundFirstBrace = false;
+  for (let i = lossStart; i < excelCode.length; i++) {
+    if (excelCode[i] === '{') {
+      braceCount++;
+      foundFirstBrace = true;
+    } else if (excelCode[i] === '}') {
+      braceCount--;
     }
-    if (lossEnd > -1) {
-        excelCode = excelCode.substring(0, lossStart) + excelCode.substring(lossEnd + 1);
+    if (foundFirstBrace && braceCount === 0) {
+      lossEnd = i;
+      break;
     }
+  }
+  if (lossEnd > -1) {
+    excelCode = excelCode.substring(0, lossStart) + excelCode.substring(lossEnd + 1);
+  }
 }
 
 // Ensure the new registry block is added ONLY ONCE
@@ -150,7 +189,11 @@ const newRegistryBlock = `
 `;
 
 if (excelCode.indexOf('registry.register(new LossCodeDashboardTab());') === -1) {
-    excelCode = excelCode.replace("registry.getTab('tab_product_dashboard')?.render(workbook, model, this.config, productConfig);\n      }", "registry.getTab('tab_product_dashboard')?.render(workbook, model, this.config, productConfig);\n      }" + newRegistryBlock);
+  excelCode = excelCode.replace(
+    "registry.getTab('tab_product_dashboard')?.render(workbook, model, this.config, productConfig);\n      }",
+    "registry.getTab('tab_product_dashboard')?.render(workbook, model, this.config, productConfig);\n      }" +
+      newRegistryBlock,
+  );
 }
 
 const newImportsBlock = `import { LossCodeDashboardTab } from '../tabs/loss_code_dashboard.tab';
@@ -163,7 +206,10 @@ import { DefinitionsTab } from '../tabs/definitions.tab';
 `;
 
 if (excelCode.indexOf('import { LossCodeDashboardTab }') === -1) {
-    excelCode = excelCode.replace("import { ProductDashboardTab } from '../tabs/product_dashboard.tab';", "import { ProductDashboardTab } from '../tabs/product_dashboard.tab';\n" + newImportsBlock);
+  excelCode = excelCode.replace(
+    "import { ProductDashboardTab } from '../tabs/product_dashboard.tab';",
+    "import { ProductDashboardTab } from '../tabs/product_dashboard.tab';\n" + newImportsBlock,
+  );
 }
 
 // Remove hardcoded calls

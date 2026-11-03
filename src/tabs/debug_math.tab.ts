@@ -9,13 +9,19 @@ export class DebugMathTab implements IDashboardTab {
 
   constructor() {}
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  render(workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, _tabConfig: unknown): void {
-
+  render(
+    workbook: ExcelJS.Workbook,
+    model: ReportModel,
+    config: ReportConfig,
+    _tabConfig?: unknown,
+  ): void {
     const debugDealers = process.env.DEBUG_DEALER_NAME
       ? process.env.DEBUG_DEALER_NAME.split(',').map((s) => s.trim().toLowerCase())
       : [];
-    if (debugDealers.length === 0) return;
+    const debugAgents = process.env.DEBUG_AGENT_NAME
+      ? process.env.DEBUG_AGENT_NAME.split(',').map((s) => s.trim().toLowerCase())
+      : [];
+    if (debugDealers.length === 0 && debugAgents.length === 0) return;
 
     const asOf = config.asOfDate;
 
@@ -31,24 +37,24 @@ export class DebugMathTab implements IDashboardTab {
     title(
       ws,
       'DEBUG MATH: COMPONENT & KPI BREAKDOWN',
-      'Shows exact component sums used to calculate Admin, Reserve, and Earned Amounts for debugged dealers',
+      'Shows exact component sums used to calculate Admin, Reserve, and Earned Amounts for debugged dealers and agents',
     );
 
     ws.columns = [
-      { key: 'dealer',     width: 45 },
-      { key: 'category',   width: 22 },
-      { key: 'component',  width: 40 },
-      { key: 'written',    width: 20 },
-      { key: 'cancelled',  width: 20 },
-      { key: 'net',        width: 20 },
-      { key: 'earnedAmt',  width: 22 },
+      { key: 'dealer', width: 45 },
+      { key: 'category', width: 22 },
+      { key: 'component', width: 40 },
+      { key: 'written', width: 20 },
+      { key: 'cancelled', width: 20 },
+      { key: 'net', width: 20 },
+      { key: 'earnedAmt', width: 22 },
       { key: 'earnFactor', width: 18 },
-      { key: 'elapsed',    width: 16 },
-      { key: 'hasSchedule',width: 18 },
+      { key: 'elapsed', width: 16 },
+      { key: 'hasSchedule', width: 18 },
     ];
 
     ws.getRow(4).values = [
-      'Dealer',
+      'Dealer / Agent',
       'Category',
       'Component / Contract #',
       'Written Amount',
@@ -61,22 +67,64 @@ export class DebugMathTab implements IDashboardTab {
     ];
     styleHeader(ws.getRow(4));
 
-    const ORANGE_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
-    const ORANGE_FONT: Partial<ExcelJS.Font> = { bold: true, italic: true, color: { argb: 'FF833C00' } };
+    const ORANGE_FILL: ExcelJS.Fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFCE4D6' },
+    };
+    const ORANGE_FONT: Partial<ExcelJS.Font> = {
+      bold: true,
+      italic: true,
+      color: { argb: 'FF833C00' },
+    };
 
     // ─────────────────────────────────────────────────────────────────────────
     // Per dealer: Earned Reserve + Component breakdown
     // ─────────────────────────────────────────────────────────────────────────
+    function matchesAgent(
+      agent?: string,
+      agentName?: string,
+      debugList: string[] = debugAgents,
+    ): boolean {
+      if (debugList.length === 0) return false;
+      const code = agent?.trim().toLowerCase() || '';
+      const name = agentName?.trim().toLowerCase() || '';
+      return debugList.some((d) => {
+        if (d === code || d === name) return true;
+        if (
+          (d === 'exw' || d === 'executive warranties') &&
+          (code === 'exw' || name === 'executive warranties')
+        ) {
+          return true;
+        }
+        return false;
+      });
+    }
+
+    const targets: { label: string; tx: typeof model.contractTransactions }[] = [];
+
     for (const dealerName of debugDealers) {
       const dealerTx = model.contractTransactions.filter(
         (t) =>
-          t.dealerName.toLowerCase() === dealerName ||
-          t.dealerNumber.toLowerCase() === dealerName
+          t.dealerName.toLowerCase() === dealerName || t.dealerNumber.toLowerCase() === dealerName,
       );
-
       if (dealerTx.length === 0) continue;
+      const realName = dealerTx[0]?.dealerName || dealerName;
+      targets.push({ label: `DEALER: ${realName}`, tx: dealerTx });
+    }
 
-      const realDealerName = dealerTx[0]?.dealerName || dealerName;
+    for (const agentInput of debugAgents) {
+      const agentTx = model.contractTransactions.filter((t) =>
+        matchesAgent(t.agent, t.agentName, [agentInput]),
+      );
+      if (agentTx.length === 0) continue;
+      const realName = agentTx[0]?.agentName || agentTx[0]?.agent || agentInput.toUpperCase();
+      targets.push({ label: `AGENT: ${realName}`, tx: agentTx });
+    }
+
+    for (const target of targets) {
+      const dealerTx = target.tx;
+      const realDealerName = target.label;
 
       // ── SECTION 1: Earned Reserve Per-Contract Breakdown ─────────────────
       const earnedHeaderRow = ws.addRow({
@@ -110,9 +158,8 @@ export class DebugMathTab implements IDashboardTab {
       dealerTx.forEach((t) => {
         const isCancel = t.transactionType === 'Cancellation';
         const elapsed = t.effectiveDate ? elapsedMonths(t.effectiveDate, asOf) : null;
-        const earnFactor = t.reserveAmount !== 0
-          ? t.earnedReserveAmount / Math.abs(t.reserveAmount)
-          : null;
+        const earnFactor =
+          t.reserveAmount !== 0 ? t.earnedReserveAmount / Math.abs(t.reserveAmount) : null;
 
         if (!isCancel) {
           totalWrittenReserve += t.reserveAmount;
@@ -162,8 +209,10 @@ export class DebugMathTab implements IDashboardTab {
         earnFactor: overallFactor,
       });
       summaryRow.font = { bold: true };
-      summaryRow.getCell('earnedAmt').note = 'Sum of earnedReserveAmount across all transactions for this dealer';
-      summaryRow.getCell('earnFactor').note = 'totalEarned / totalWrittenReserve — overall blended earn factor';
+      summaryRow.getCell('earnedAmt').note =
+        'Sum of earnedReserveAmount across all transactions for this dealer';
+      summaryRow.getCell('earnFactor').note =
+        'totalEarned / totalWrittenReserve — overall blended earn factor';
 
       ws.addRow({});
 
@@ -177,8 +226,8 @@ export class DebugMathTab implements IDashboardTab {
       });
       const activeContractNumbers = new Set(
         [...latestContractState.values()]
-          .filter(t => t.contractStatus === 'A' && t.transactionType !== 'Cancellation')
-          .map(t => t.contractNumber)
+          .filter((t) => t.contractStatus === 'A' && t.transactionType !== 'Cancellation')
+          .map((t) => t.contractNumber),
       );
 
       // ── SECTION 2: RESERVE Component Breakdown ────────────────────────────
@@ -189,15 +238,15 @@ export class DebugMathTab implements IDashboardTab {
         const isCancel = t.transactionType === 'Cancellation';
         const isActive = activeContractNumbers.has(t.contractNumber);
 
-        ['RESERVE', 'ADMIN'].forEach(cat => {
+        ['RESERVE', 'ADMIN'].forEach((cat) => {
           if (!t.components![cat]) return;
-          
+
           // Only aggregate ADMIN components for ACTIVE contracts
           if (cat === 'ADMIN' && !isActive) return;
 
           Object.entries(t.components![cat]).forEach(([comp, amt]) => {
             if (excludedComponent(comp, cat as 'ADMIN' | 'RESERVE', config)) return;
-            
+
             const key = `${cat}.${comp}`;
             if (!sums[key]) sums[key] = { written: 0, cancelled: 0, net: 0 };
             if (isCancel) {
@@ -220,22 +269,28 @@ export class DebugMathTab implements IDashboardTab {
       reserveHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDAE3F3' } };
 
       let reserveNetTotal = 0;
-      Object.keys(sums).filter(k => k.startsWith('RESERVE.')).sort().forEach(k => {
-        const sum = sums[k];
-        if (!sum || (sum.net === 0 && sum.written === 0)) return;
-        reserveNetTotal += sum.net;
-        ws.addRow({
-          dealer: realDealerName,
-          category: 'RESERVE',
-          component: k.replace('RESERVE.', ''),
-          written: sum.written,
-          cancelled: sum.cancelled,
-          net: sum.net,
+      Object.keys(sums)
+        .filter((k) => k.startsWith('RESERVE.'))
+        .sort()
+        .forEach((k) => {
+          const sum = sums[k];
+          if (!sum || (sum.net === 0 && sum.written === 0)) return;
+          reserveNetTotal += sum.net;
+          ws.addRow({
+            dealer: realDealerName,
+            category: 'RESERVE',
+            component: k.replace('RESERVE.', ''),
+            written: sum.written,
+            cancelled: sum.cancelled,
+            net: sum.net,
+          });
         });
-      });
 
       const reserveTotalRow = ws.addRow({
-        dealer: '', category: '', component: 'TOTAL NET RESERVE:', net: reserveNetTotal,
+        dealer: '',
+        category: '',
+        component: 'TOTAL NET RESERVE:',
+        net: reserveNetTotal,
       });
       reserveTotalRow.font = { bold: true };
       ws.addRow({});
@@ -250,22 +305,28 @@ export class DebugMathTab implements IDashboardTab {
       adminHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
 
       let adminNetTotal = 0;
-      Object.keys(sums).filter(k => k.startsWith('ADMIN.')).sort().forEach(k => {
-        const sum = sums[k];
-        if (!sum || (sum.net === 0 && sum.written === 0)) return;
-        adminNetTotal += sum.net;
-        ws.addRow({
-          dealer: realDealerName,
-          category: 'ADMIN',
-          component: k.replace('ADMIN.', ''),
-          written: sum.written,
-          cancelled: sum.cancelled,
-          net: sum.net,
+      Object.keys(sums)
+        .filter((k) => k.startsWith('ADMIN.'))
+        .sort()
+        .forEach((k) => {
+          const sum = sums[k];
+          if (!sum || (sum.net === 0 && sum.written === 0)) return;
+          adminNetTotal += sum.net;
+          ws.addRow({
+            dealer: realDealerName,
+            category: 'ADMIN',
+            component: k.replace('ADMIN.', ''),
+            written: sum.written,
+            cancelled: sum.cancelled,
+            net: sum.net,
+          });
         });
-      });
 
       const adminTotalRow = ws.addRow({
-        dealer: '', category: '', component: 'TOTAL NET ADMIN:', net: adminNetTotal,
+        dealer: '',
+        category: '',
+        component: 'TOTAL NET ADMIN:',
+        net: adminNetTotal,
       });
       adminTotalRow.font = { bold: true };
       ws.addRow({});
@@ -280,14 +341,14 @@ export class DebugMathTab implements IDashboardTab {
       grossHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6E6FA' } };
 
       let grossNetTotal = 0;
-      
+
       const grossSums: Record<string, { written: number; cancelled: number; net: number }> = {};
-      
+
       dealerTx.forEach((t) => {
         if (!t.components) return;
         const isCancel = t.transactionType === 'Cancellation';
-        
-        Object.keys(t.components).forEach(cat => {
+
+        Object.keys(t.components).forEach((cat) => {
           const catData = t.components![cat];
           if (!catData) return;
           Object.entries(catData).forEach(([comp, amt]) => {
@@ -305,23 +366,28 @@ export class DebugMathTab implements IDashboardTab {
         });
       });
 
-      Object.keys(grossSums).sort().forEach(k => {
-        const sum = grossSums[k];
-        if (!sum || (sum.net === 0 && sum.written === 0)) return;
-        grossNetTotal += sum.net;
-        const [cat, ...compParts] = k.split('.');
-        ws.addRow({
-          dealer: realDealerName,
-          category: cat,
-          component: compParts.join('.'),
-          written: sum.written,
-          cancelled: sum.cancelled,
-          net: sum.net,
+      Object.keys(grossSums)
+        .sort()
+        .forEach((k) => {
+          const sum = grossSums[k];
+          if (!sum || (sum.net === 0 && sum.written === 0)) return;
+          grossNetTotal += sum.net;
+          const [cat, ...compParts] = k.split('.');
+          ws.addRow({
+            dealer: realDealerName,
+            category: cat,
+            component: compParts.join('.'),
+            written: sum.written,
+            cancelled: sum.cancelled,
+            net: sum.net,
+          });
         });
-      });
 
       const grossTotalRow = ws.addRow({
-        dealer: '', category: '', component: 'TOTAL NET GROSS INCOME:', net: grossNetTotal,
+        dealer: '',
+        category: '',
+        component: 'TOTAL NET GROSS INCOME:',
+        net: grossNetTotal,
       });
       grossTotalRow.font = { bold: true };
       ws.addRow({});
@@ -337,12 +403,12 @@ export class DebugMathTab implements IDashboardTab {
 
       let excludedTotal = 0;
       const excludedSums: Record<string, { written: number; cancelled: number; net: number }> = {};
-      
+
       dealerTx.forEach((t) => {
         if (!t.components) return;
         const isCancel = t.transactionType === 'Cancellation';
-        
-        Object.keys(t.components).forEach(cat => {
+
+        Object.keys(t.components).forEach((cat) => {
           const catData = t.components![cat];
           if (!catData) return;
           Object.entries(catData).forEach(([comp, amt]) => {
@@ -360,24 +426,29 @@ export class DebugMathTab implements IDashboardTab {
         });
       });
 
-      Object.keys(excludedSums).sort().forEach(k => {
-        const sum = excludedSums[k];
-        if (!sum || (sum.net === 0 && sum.written === 0)) return;
-        excludedTotal += sum.net;
-        const [cat, ...compParts] = k.split('.');
-        const r = ws.addRow({
-          dealer: realDealerName,
-          category: cat,
-          component: compParts.join('.'),
-          written: sum.written,
-          cancelled: sum.cancelled,
-          net: sum.net,
+      Object.keys(excludedSums)
+        .sort()
+        .forEach((k) => {
+          const sum = excludedSums[k];
+          if (!sum || (sum.net === 0 && sum.written === 0)) return;
+          excludedTotal += sum.net;
+          const [cat, ...compParts] = k.split('.');
+          const r = ws.addRow({
+            dealer: realDealerName,
+            category: cat,
+            component: compParts.join('.'),
+            written: sum.written,
+            cancelled: sum.cancelled,
+            net: sum.net,
+          });
+          r.font = { color: { argb: 'FF808080' } }; // gray out excluded rows
         });
-        r.font = { color: { argb: 'FF808080' } }; // gray out excluded rows
-      });
 
       const excludedTotalRow = ws.addRow({
-        dealer: '', category: '', component: 'TOTAL EXCLUDED:', net: excludedTotal,
+        dealer: '',
+        category: '',
+        component: 'TOTAL EXCLUDED:',
+        net: excludedTotal,
       });
       excludedTotalRow.font = { bold: true, color: { argb: 'FF808080' } };
       ws.addRow({});
@@ -396,6 +467,5 @@ export class DebugMathTab implements IDashboardTab {
         row.getCell('earnFactor').numFmt = PCT_FMT;
       }
     });
-
   }
 }

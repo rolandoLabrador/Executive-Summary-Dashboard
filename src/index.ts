@@ -7,6 +7,7 @@ import { DataRepository } from './services/data.repository';
 import { EmailService } from './services/email.service';
 import { ExcelService } from './services/excel.service';
 import { MongoService } from './services/mongo.service';
+import { SnapshotService } from './services/snapshot.service';
 import { ReportTransformer } from './utils/report.transformer';
 
 dotenv.config();
@@ -85,9 +86,22 @@ async function main(): Promise<void> {
     logMemory('4. After ExcelService.generateFullReport (Workbook in RAM)');
 
     await mkdir(reportConfig.outputDirectory, { recursive: true });
-    const fileName = `${reportConfig.companyName.replace(/[^a-z0-9]+/gi, '_')}_Executive_Report_${fileDate(model.asOfDate)}_v6.xlsx`;
-    const outputPath = path.join(reportConfig.outputDirectory, fileName);
-    await writeFile(outputPath, workbook);
+    let fileName = `${reportConfig.companyName.replace(/[^a-z0-9]+/gi, '_')}_Executive_Report_${fileDate(model.asOfDate)}_v6.xlsx`;
+    let outputPath = path.join(reportConfig.outputDirectory, fileName);
+    try {
+      await writeFile(outputPath, workbook);
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'code' in err && err.code === 'EBUSY') {
+        fileName = `${reportConfig.companyName.replace(/[^a-z0-9]+/gi, '_')}_Executive_Report_${fileDate(model.asOfDate)}_v7.xlsx`;
+        outputPath = path.join(reportConfig.outputDirectory, fileName);
+        console.warn(
+          `⚠️ Primary output file was locked by Excel (EBUSY). Wrote to fallback: ${fileName}`,
+        );
+        await writeFile(outputPath, workbook);
+      } else {
+        throw err;
+      }
+    }
     logMemory('5. After Writing Excel to Disk');
 
     console.log(`Report created: ${outputPath}`);
@@ -99,6 +113,12 @@ async function main(): Promise<void> {
       workbook,
       dataQualityIssueCount: model.dataQualityIssues.length,
     });
+
+    // Persist web snapshot for Portal
+    const snapshotCollection =
+      process.env.MONGODB_SNAPSHOT_COLLECTION || 'executive_report_snapshots';
+    const snapshotService = new SnapshotService(mongo.getDb(), snapshotCollection);
+    await snapshotService.saveSnapshot(model);
   } finally {
     await mongo.close();
   }

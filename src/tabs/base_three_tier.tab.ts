@@ -11,7 +11,7 @@ import {
   formatDate,
   formatDateRange,
   dataBarRule,
-  getLossRatioBarColorHex
+  getLossRatioBarColorHex,
 } from '../utils/excel.utils';
 
 export abstract class BaseThreeTierTab implements IDashboardTab {
@@ -26,7 +26,12 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
   protected abstract getYtdRows(model: ReportModel): DimensionMetric[];
   protected abstract getLimit(config: ReportConfig): number | undefined;
 
-  public render(workbook: ExcelJS.Workbook, model: ReportModel, config: ReportConfig, tabConfig: { tables?: Record<string, boolean> }): void {
+  public render(
+    workbook: ExcelJS.Workbook,
+    model: ReportModel,
+    config: ReportConfig,
+    tabConfig: { tables?: Record<string, boolean> },
+  ): void {
     const ws = workbook.addWorksheet(this.name);
     configureWorksheet(ws);
     const maxCols = this.isDealer ? 19 : 17;
@@ -36,11 +41,11 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       `Inception to Date, Rolling 12-Month & Latest Month Results | Through ${formatDate(model.yearToDate.currentEnd)}`,
       maxCols,
     );
-    
+
     const tables = tabConfig?.tables || {};
 
     let nextRow = 4;
-    
+
     if (tables.inceptionToDate !== false) {
       nextRow = this.writeTable(
         ws,
@@ -48,10 +53,10 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
         `INCEPTION TO DATE RESULTS (${formatDateRange(new Date(2010, 0, 1), model.yearToDate.currentEnd)})`,
         this.getItdRows(model),
         config,
-        maxCols
+        maxCols,
       );
     }
-    
+
     if (tables.rolling12Month !== false) {
       nextRow = this.writeTable(
         ws,
@@ -59,10 +64,10 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
         `ROLLING 12-MONTH RESULTS (${formatDateRange(model.rolling12.currentStart, model.yearToDate.currentEnd)})`,
         this.getRollingRows(model),
         config,
-        maxCols
+        maxCols,
       );
     }
-    
+
     if (tables.yearToDate !== false) {
       this.writeTable(
         ws,
@@ -70,7 +75,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
         `YEAR TO DATE RESULTS (${formatDateRange(model.yearToDate.currentStart, model.yearToDate.currentEnd)})`,
         this.getYtdRows(model),
         config,
-        maxCols
+        maxCols,
       );
     }
 
@@ -90,6 +95,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       { width: 16 }, // Underwriting Profit
       { width: 12 }, // Claim Count
       { width: 16 }, // Earned Loss Ratio
+      { width: 14 }, // % Earned
       { width: 17 }, // Cancellation Rate
       { width: 28 }, // Loss Ratio Bar
     ];
@@ -101,7 +107,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
     sectionHeading: string,
     rows: DimensionMetric[],
     config: ReportConfig,
-    maxCols: number
+    maxCols: number,
   ): number {
     ws.mergeCells(startRow, 1, startRow, maxCols);
     const headingCell = ws.getCell(startRow, 1);
@@ -126,6 +132,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       'Underwriting Profit',
       'Claim Count',
       'Earned Loss Ratio',
+      '% Earned',
       'Cancellation Rate',
       'Loss Ratio Bar',
     ];
@@ -136,7 +143,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       const row = ws.getRow(startRow + 2 + index);
       row.values = [
         index + 1,
-        this.isDealer ? item.name : (item.displayName || item.name),
+        this.isDealer ? item.name : item.displayName || item.name,
         ...(this.isDealer
           ? [item.displayName || 'Name unavailable', item.relatedAgents?.join(', ') || 'Unassigned']
           : []),
@@ -152,6 +159,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
         item.underwritingProfit,
         item.claimCount,
         item.earnedLossRatio,
+        item.percentEarned ?? (item.netReserve > 0 ? item.earnedReserve / item.netReserve : null),
         item.cancellationRate,
         item.earnedLossRatio,
       ];
@@ -162,19 +170,23 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       [5, 7, 8, 9, 10, 11, 12].forEach((column) => {
         row.getCell(column + offset).numFmt = MONEY;
       });
-      [14, 15, 16].forEach((column) => {
+      [14, 15, 16, 17].forEach((column) => {
         row.getCell(column + offset).numFmt = PERCENT;
       });
-      
+
       // RULE 1: Visual Flag for Average admin < 20
       const adminCell = row.getCell(8 + offset);
-      if (item.adminPerContract !== null && item.adminPerContract > 0 && item.adminPerContract < 20) {
+      if (
+        item.adminPerContract !== null &&
+        item.adminPerContract > 0 &&
+        item.adminPerContract < 20
+      ) {
         adminCell.font = { color: { argb: COLORS.red }, bold: true };
         adminCell.note = 'FLAGGED: Average admin is below $20.00';
       }
 
       // RULE 2: Colored Data Bars for Loss Ratio
-      const barCell = row.getCell(16 + offset);
+      const barCell = row.getCell(17 + offset);
       const colorHex = getLossRatioBarColorHex(item.earnedLossRatio);
       ws.addConditionalFormatting({
         ref: barCell.address,
@@ -185,7 +197,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
     if (selected.length > 0) {
       const firstDataRow = startRow + 2;
       const lastDataRow = startRow + 1 + selected.length;
-      const earnedRatioCol = this.isDealer ? 'Q' : 'O';
+      const earnedRatioCol = this.isDealer ? 'P' : 'N';
 
       const ratioRules: ExcelJS.ConditionalFormattingRule[] = [
         {

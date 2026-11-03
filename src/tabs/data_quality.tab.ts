@@ -8,9 +8,12 @@ export class DataQualityTab implements IDashboardTab {
 
   constructor() {}
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  render(workbook: ExcelJS.Workbook, model: ReportModel, _config: ReportConfig, _tabConfig: unknown): void {
-    
+  render(
+    workbook: ExcelJS.Workbook,
+    model: ReportModel,
+    _config: ReportConfig,
+    _tabConfig?: unknown,
+  ): void {
     const ws = workbook.addWorksheet('Data Quality');
     configureWorksheet(ws);
     title(
@@ -125,7 +128,12 @@ export class DataQualityTab implements IDashboardTab {
     currentRow++;
 
     const bucketsHeaderRow = currentRow;
-    ws.getRow(bucketsHeaderRow).values = ['Category (Bucket)', 'Errors', 'Warnings', 'Total Issues'];
+    ws.getRow(bucketsHeaderRow).values = [
+      'Category (Bucket)',
+      'Errors',
+      'Warnings',
+      'Total Issues',
+    ];
     styleHeaderRange(ws, bucketsHeaderRow, 1, 4);
     currentRow++;
 
@@ -139,9 +147,9 @@ export class DataQualityTab implements IDashboardTab {
     });
 
     const sortedBuckets = Array.from(buckets.entries()).sort(
-      (a, b) => (b[1].errors + b[1].warnings) - (a[1].errors + a[1].warnings)
+      (a, b) => b[1].errors + b[1].warnings - (a[1].errors + a[1].warnings),
     );
-    
+
     if (sortedBuckets.length === 0) {
       ws.getCell(currentRow, 1).value = 'No data quality issues found.';
       ws.getCell(currentRow, 1).font = { italic: true };
@@ -153,12 +161,12 @@ export class DataQualityTab implements IDashboardTab {
         row.getCell(2).value = bCounts.errors;
         row.getCell(3).value = bCounts.warnings;
         row.getCell(4).value = bCounts.errors + bCounts.warnings;
-        
-        [2, 3, 4].forEach(col => { 
-          row.getCell(col).numFmt = INTEGER; 
-          row.getCell(col).alignment = { horizontal: 'center' }; 
+
+        [2, 3, 4].forEach((col) => {
+          row.getCell(col).numFmt = INTEGER;
+          row.getCell(col).alignment = { horizontal: 'center' };
         });
-        
+
         // Highlight errors in red if > 0
         if (bCounts.errors > 0) {
           row.getCell(2).font = { color: { argb: '9C0006' }, bold: true };
@@ -212,6 +220,5 @@ export class DataQualityTab implements IDashboardTab {
       { width: 34 },
       { width: 26 },
     ];
-  
   }
 }

@@ -8,9 +8,12 @@ export class ClaimActivityTab implements IDashboardTab {
 
   constructor() {}
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  render(workbook: ExcelJS.Workbook, model: ReportModel, _config: ReportConfig, _tabConfig: unknown): void {
-    
+  render(
+    workbook: ExcelJS.Workbook,
+    model: ReportModel,
+    _config: ReportConfig,
+    _tabConfig?: unknown,
+  ): void {
     const ws = workbook.addWorksheet('Claim Activity');
     configureWorksheet(ws);
     title(
@@ -25,6 +28,22 @@ export class ClaimActivityTab implements IDashboardTab {
       ? process.env.DEBUG_AGENT_NAME.split(',').map((s) => s.trim().toLowerCase())
       : [];
     const hasDebug = debugDealers.length > 0 || debugAgents.length > 0;
+
+    function matchesAgent(agent?: string, agentName?: string): boolean {
+      if (debugAgents.length === 0) return false;
+      const code = agent?.trim().toLowerCase() || '';
+      const name = agentName?.trim().toLowerCase() || '';
+      return debugAgents.some((d) => {
+        if (d === code || d === name) return true;
+        if (
+          (d === 'exw' || d === 'executive warranties') &&
+          (code === 'exw' || name === 'executive warranties')
+        ) {
+          return true;
+        }
+        return false;
+      });
+    }
 
     const baseColumns: Partial<ExcelJS.Column>[] = [
       { width: 26 },
@@ -68,7 +87,7 @@ export class ClaimActivityTab implements IDashboardTab {
     model.claims.forEach((item, index) => {
       if (hasDebug) {
         const dealerMatch = debugDealers.includes(item.dealer.toLowerCase());
-        const agentMatch = debugAgents.includes(item.agent.toLowerCase());
+        const agentMatch = matchesAgent(item.agent, item.agentName);
         if (!dealerMatch && !agentMatch) return;
       } else {
         // SAMPLE SIZE REDUCTION
@@ -94,6 +113,5 @@ export class ClaimActivityTab implements IDashboardTab {
       ]);
     });
     ws.autoFilter = { from: 'A4', to: `M${Math.max(5, sampledCount + 4)}` };
-  
   }
 }

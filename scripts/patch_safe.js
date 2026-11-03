@@ -5,20 +5,20 @@ let content = fs.readFileSync('src/services/excel.service.ts', 'utf8');
 // 1. Remove buildThreeTierDimensionSheet completely
 let start = content.indexOf('function buildThreeTierDimensionSheet(');
 if (start > -1) {
-    let end = content.indexOf('];\n}', start);
-    if (end === -1) end = content.indexOf('];\r\n}', start);
-    if (end > -1) content = content.substring(0, start) + content.substring(end + 5);
+  let end = content.indexOf('];\n}', start);
+  if (end === -1) end = content.indexOf('];\r\n}', start);
+  if (end > -1) content = content.substring(0, start) + content.substring(end + 5);
 }
 
 // 2. Remove this.buildExecutive completely
 start = content.indexOf('private buildExecutive(');
 if (start > -1) {
-    let end = content.indexOf('ws.columns = [', start);
-    if (end > -1) {
-        end = content.indexOf('];\n  }', end);
-        if (end === -1) end = content.indexOf('];\r\n  }', end);
-        if (end > -1) content = content.substring(0, start) + content.substring(end + 7);
-    }
+  let end = content.indexOf('ws.columns = [', start);
+  if (end > -1) {
+    end = content.indexOf('];\n  }', end);
+    if (end === -1) end = content.indexOf('];\r\n  }', end);
+    if (end > -1) content = content.substring(0, start) + content.substring(end + 7);
+  }
 }
 
 // 3. Add imports
@@ -64,7 +64,8 @@ const registryLogic = `
 content = content.replace('      this.buildExecutive(workbook, model);', registryLogic);
 
 // 5. Remove the remaining buildThreeTierDimensionSheet calls that followed buildExecutive
-const regex = /buildThreeTierDimensionSheet\([\s\S]*?,\s*(?:model\.yearToDate\.currentEnd|this\.config\.topDealerCount)(?:,\s*this\.config\.topDealerCount)?\);/g;
+const regex =
+  /buildThreeTierDimensionSheet\([\s\S]*?,\s*(?:model\.yearToDate\.currentEnd|this\.config\.topDealerCount)(?:,\s*this\.config\.topDealerCount)?\);/g;
 content = content.replace(regex, '');
 
 fs.writeFileSync('src/services/excel.service.ts', content);

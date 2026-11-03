@@ -1,16 +1,28 @@
 import type * as ExcelJS from 'exceljs';
 import { type ReportModel, type ReportConfig } from '../models/report.types';
 import { type IDashboardTab } from './IDashboardTab';
-import { title, styleHeader, MONEY, PERCENT, INTEGER, dataBarRule, configureWorksheet, formatDateRange } from '../utils/excel.utils';
+import {
+  title,
+  styleHeader,
+  MONEY,
+  PERCENT,
+  INTEGER,
+  dataBarRule,
+  configureWorksheet,
+  formatDateRange,
+} from '../utils/excel.utils';
 
 export class MonthlyTrendsTab implements IDashboardTab {
   readonly id = 'tab_monthly';
 
   constructor() {}
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  render(workbook: ExcelJS.Workbook, model: ReportModel, _config: ReportConfig, _tabConfig: unknown): void {
-    
+  render(
+    workbook: ExcelJS.Workbook,
+    model: ReportModel,
+    _config: ReportConfig,
+    _tabConfig?: unknown,
+  ): void {
     const ws = workbook.addWorksheet('Monthly Trends');
     configureWorksheet(ws);
     const trendStart = model.monthly[0]?.periodStart ?? model.currentMonth.currentStart;
@@ -29,6 +41,7 @@ export class MonthlyTrendsTab implements IDashboardTab {
       'Claims Paid',
       'Claim Count',
       'Earned Loss Ratio',
+      '% Earned',
       'Cancellation Rate',
       'Loss Ratio Bar',
     ];
@@ -45,6 +58,7 @@ export class MonthlyTrendsTab implements IDashboardTab {
         item.claimsPaid,
         item.claimCount,
         item.earnedLossRatio,
+        item.percentEarned ?? (item.netReserve > 0 ? item.earnedReserve / item.netReserve : null),
         item.cancellationRate,
         item.earnedLossRatio,
       ];
@@ -55,13 +69,13 @@ export class MonthlyTrendsTab implements IDashboardTab {
       [5, 6, 7].forEach((column) => {
         row.getCell(column).numFmt = MONEY;
       });
-      [9, 10, 11].forEach((column) => {
+      [9, 10, 11, 12].forEach((column) => {
         row.getCell(column).numFmt = PERCENT;
       });
     });
     const lastRow = model.monthly.length + 4;
     ws.addConditionalFormatting({
-      ref: `K5:K${lastRow}`,
+      ref: `L5:L${lastRow}`,
       rules: [dataBarRule(1)],
     });
     ws.columns = [
@@ -74,9 +88,9 @@ export class MonthlyTrendsTab implements IDashboardTab {
       { width: 16 },
       { width: 12 },
       { width: 16 },
+      { width: 14 },
       { width: 17 },
       { width: 30 },
     ];
-  
   }
 }

@@ -22,6 +22,8 @@ export interface MongoSourceConfig {
   claimCollection: string;
   auditDb?: string;
   auditCollection?: string;
+  snapshotDb?: string;
+  snapshotCollection?: string;
 }
 
 export interface EmailConfig {
@@ -99,6 +101,7 @@ export interface MetricValues {
   grossIncomeCancelled: number;
   grossIncome: number;
   earnedLossRatio: number | null;
+  percentEarned: number | null;
   cancellationRate: number | null;
   adminPerContract: number | null;
 }

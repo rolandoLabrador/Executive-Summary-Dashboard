@@ -2,6 +2,8 @@
 
 Automated warranty reporting from MongoDB to a sanitized Excel executive dashboard.
 
+> 📘 **Comprehensive Project Documentation**: For complete end-to-end architecture diagrams, DuckDB analytical engine details, AI underwriting intelligence, and tenure/maturity formulas, see [PROJECT_DOCUMENTATION.md](file:///c:/Users/Rolando/Desktop/Executive%20Summary%20Dashboard/PROJECT_DOCUMENTATION.md).
+
 ## Report contents
 
 - Executive current-month, YTD, rolling-12, and year-over-year comparisons

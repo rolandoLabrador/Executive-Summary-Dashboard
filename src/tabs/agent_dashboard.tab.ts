@@ -20,7 +20,6 @@ export class AgentDashboardTab extends BaseThreeTierTab {
     return model.ytdAgents;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected getLimit(_config: ReportConfig): number | undefined {
     return undefined; // No limit for agents
   }

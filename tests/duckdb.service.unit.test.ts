@@ -35,7 +35,7 @@ async function runTest(): Promise<void> {
       reserveAmount: 400.0,
       grossIncomeAmount: 500.0,
       earnedReserveAmount: 0,
-      earningSchedule: { 1: 0.05, 2: 0.10 },
+      earningSchedule: { 1: 0.05, 2: 0.1 },
       components: { ADMIN: { BASEADMIN: 100 }, RESERVE: { BASERESERVE: 400 } },
     },
     // Snapshot 2 of CNT-1001 with updated reserve ($450)
@@ -60,7 +60,7 @@ async function runTest(): Promise<void> {
       reserveAmount: 450.0,
       grossIncomeAmount: 550.0,
       earnedReserveAmount: 0,
-      earningSchedule: { 1: 0.05, 2: 0.10 },
+      earningSchedule: { 1: 0.05, 2: 0.1 },
       components: { ADMIN: { BASEADMIN: 100 }, RESERVE: { BASERESERVE: 450 } },
     },
     {
