@@ -7,6 +7,7 @@ import { DataRepository } from './services/data.repository';
 import { EmailService } from './services/email.service';
 import { ExcelService } from './services/excel.service';
 import { MongoService } from './services/mongo.service';
+import { SnapshotService } from './services/snapshot.service';
 import { ReportTransformer } from './utils/report.transformer';
 
 dotenv.config();
@@ -23,33 +24,41 @@ function logMemory(checkpoint: string): void {
   const heapUsedMB = Math.round(mem.heapUsed / 1024 / 1024);
   const heapTotalMB = Math.round(mem.heapTotal / 1024 / 1024);
   const rssMB = Math.round(mem.rss / 1024 / 1024);
-  console.log(`⏱️ [Memory Checkpoint] ${checkpoint} -> Heap: ${heapUsedMB} MB / ${heapTotalMB} MB (RSS: ${rssMB} MB)`);
+  console.log(
+    `⏱️ [Memory Checkpoint] ${checkpoint} -> Heap: ${heapUsedMB} MB / ${heapTotalMB} MB (RSS: ${rssMB} MB)`,
+  );
 }
 
 async function extractAndTransformModel(
   repository: DataRepository,
   reportConfig: ReturnType<typeof loadReportConfig>,
 ): Promise<ReportModel> {
-  const [contracts, cancellations, claims, pipelineAudits] = await Promise.all([
-    repository.getContracts(),
-    repository.getCancellations(),
-    repository.getClaims(),
-    repository.getLatestReconciliationAudits(),
-  ]);
-  console.log(
-    `Extracted ${contracts.length} contract, ${cancellations.length} cancellation, and ${claims.length} claim documents.`,
-  );
+  console.log(`Extracting Full Inception-to-Date streams from MongoDB...`);
+
+  // Create open streams instead of pulling arrays into memory.
+  const contractsStream = repository.getContracts();
+  const cancellationsStream = repository.getCancellations();
+  const claimsStream = repository.getClaims();
+
+  const pipelineAudits = await repository.getLatestReconciliationAudits();
+
   if (pipelineAudits.length > 0) {
     console.log(
-      `Pipeline Audits: ${pipelineAudits.map((a) => `${a.jobType}: ${a.reconciliation.status}`).join(' | ')}`,
+      `Pipeline Audits: ${pipelineAudits
+        .map((a) => {
+          const units = a.counts.uniqueCount ?? a.counts.uploadedCount;
+          return `${a.jobType} (${units.toLocaleString()} units / ${a.counts.uploadedCount.toLocaleString()} lines): ${a.reconciliation.status}`;
+        })
+        .join(' | ')}`,
     );
   }
-  logMemory('2. After MongoDB Extraction (Raw Documents in RAM)');
+  logMemory('2. After MongoDB connection initialization');
 
-  const model = new ReportTransformer(reportConfig).transform(
-    contracts,
-    cancellations,
-    claims,
+  // Transformer now consumes the streams one-by-one asynchronously
+  const model = await new ReportTransformer(reportConfig).transform(
+    contractsStream,
+    cancellationsStream,
+    claimsStream,
     pipelineAudits,
   );
 
@@ -65,7 +74,7 @@ async function main(): Promise<void> {
   try {
     await mongo.connect();
     const repository = new DataRepository(mongo, loadMongoSourceConfig());
-    
+
     // Raw documents are isolated inside extractAndTransformModel and freed when it finishes
     const model = await extractAndTransformModel(repository, reportConfig);
     if (global.gc) {
@@ -77,9 +86,22 @@ async function main(): Promise<void> {
     logMemory('4. After ExcelService.generateFullReport (Workbook in RAM)');
 
     await mkdir(reportConfig.outputDirectory, { recursive: true });
-    const fileName = `${reportConfig.companyName.replace(/[^a-z0-9]+/gi, '_')}_Executive_Report_${fileDate(model.asOfDate)}.xlsx`;
-    const outputPath = path.join(reportConfig.outputDirectory, fileName);
-    await writeFile(outputPath, workbook);
+    let fileName = `${reportConfig.companyName.replace(/[^a-z0-9]+/gi, '_')}_Executive_Report_${fileDate(model.asOfDate)}_v6.xlsx`;
+    let outputPath = path.join(reportConfig.outputDirectory, fileName);
+    try {
+      await writeFile(outputPath, workbook);
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'code' in err && err.code === 'EBUSY') {
+        fileName = `${reportConfig.companyName.replace(/[^a-z0-9]+/gi, '_')}_Executive_Report_${fileDate(model.asOfDate)}_v7.xlsx`;
+        outputPath = path.join(reportConfig.outputDirectory, fileName);
+        console.warn(
+          `⚠️ Primary output file was locked by Excel (EBUSY). Wrote to fallback: ${fileName}`,
+        );
+        await writeFile(outputPath, workbook);
+      } else {
+        throw err;
+      }
+    }
     logMemory('5. After Writing Excel to Disk');
 
     console.log(`Report created: ${outputPath}`);
@@ -91,6 +113,12 @@ async function main(): Promise<void> {
       workbook,
       dataQualityIssueCount: model.dataQualityIssues.length,
     });
+
+    // Persist web snapshot for Portal
+    const snapshotCollection =
+      process.env.MONGODB_SNAPSHOT_COLLECTION || 'executive_report_snapshots';
+    const snapshotService = new SnapshotService(mongo.getDb(), snapshotCollection);
+    await snapshotService.saveSnapshot(model);
   } finally {
     await mongo.close();
   }

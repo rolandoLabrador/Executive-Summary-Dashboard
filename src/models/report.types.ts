@@ -22,6 +22,8 @@ export interface MongoSourceConfig {
   claimCollection: string;
   auditDb?: string;
   auditCollection?: string;
+  snapshotDb?: string;
+  snapshotCollection?: string;
 }
 
 export interface EmailConfig {
@@ -42,6 +44,7 @@ export interface NormalizedContractTransaction {
   transactionType: TransactionType;
   activityDate: Date;
   agent: string;
+  agentName?: string;
   dealer: string;
   dealerNumber: string;
   dealerName: string;
@@ -51,6 +54,11 @@ export interface NormalizedContractTransaction {
   riskEntity: string;
   adminAmount: number;
   reserveAmount: number;
+  grossIncomeAmount: number;
+  earnedReserveAmount: number;
+  effectiveDate: Date | null;
+  earningSchedule: Record<number, number> | null;
+  components: Record<string, Record<string, number>>;
 }
 
 export interface NormalizedClaim {
@@ -63,6 +71,7 @@ export interface NormalizedClaim {
   status: string;
   paidAmount: number;
   agent: string;
+  agentName?: string;
   dealer: string;
   dealerName: string;
   product: string;
@@ -83,9 +92,18 @@ export interface MetricValues {
   reserveWritten: number;
   reserveCancelled: number;
   netReserve: number;
+
+  earnedReserve: number;
   claimsPaid: number;
   claimCount: number;
-  paidLossRatio: number | null;
+  claimFrequency: number | null;
+  claimSeverity: number | null;
+  underwritingProfit: number;
+  grossIncomeWritten: number;
+  grossIncomeCancelled: number;
+  grossIncome: number;
+  earnedLossRatio: number | null;
+  percentEarned: number | null;
   cancellationRate: number | null;
   adminPerContract: number | null;
 }
@@ -114,6 +132,7 @@ export interface DimensionMetric extends MetricValues {
   name: string;
   displayName?: string;
   relatedAgents?: string[];
+  relatedDealers?: string[];
 }
 
 export interface LossCodeKpis {
@@ -154,6 +173,8 @@ export interface DataQualityIssue {
   severity: 'Warning' | 'Error';
   category: string;
   contractNumber: string;
+  agent?: string;
+  agentName?: string;
   dealerName: string;
   sourceId: string;
   message: string;
@@ -169,6 +190,7 @@ export interface PipelineAuditRecord {
   };
   counts: {
     portalCount: number;
+    uniqueCount?: number | null;
     processedCount: number;
     uploadedCount: number;
   };
@@ -195,10 +217,20 @@ export interface ReportModel {
   yearToDate: PeriodComparison;
   rolling12: PeriodComparison;
   priorCalendarYear: ReportingPeriod;
+  inceptionToDate: ReportingPeriod;
   monthly: MonthlyMetric[];
   dealers: DimensionMetric[];
+  itdDealers: DimensionMetric[];
+  monthlyDealers: DimensionMetric[];
+  ytdDealers: DimensionMetric[];
   agents: DimensionMetric[];
+  itdAgents: DimensionMetric[];
+  monthlyAgents: DimensionMetric[];
+  ytdAgents: DimensionMetric[];
   products: DimensionMetric[];
+  itdProducts: DimensionMetric[];
+  monthlyProducts: DimensionMetric[];
+  ytdProducts: DimensionMetric[];
   lossCodeDashboard: LossCodeDashboard;
   contractTransactions: NormalizedContractTransaction[];
   claims: NormalizedClaim[];

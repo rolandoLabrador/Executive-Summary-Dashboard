@@ -1,4 +1,4 @@
-import * as sendGrid from '@sendgrid/mail';
+import sgMail from '@sendgrid/mail';
 import { type EmailConfig } from '../models/report.types';
 
 export interface ReportEmail {
@@ -19,7 +19,7 @@ function displayDate(value: Date): string {
 
 export class EmailService {
   constructor(private readonly config: EmailConfig) {
-    if (config.enabled) sendGrid.setApiKey(config.apiKey);
+    if (config.enabled) sgMail.setApiKey(config.apiKey);
   }
 
   async sendReport(report: ReportEmail): Promise<boolean> {
@@ -29,7 +29,7 @@ export class EmailService {
     }
 
     const asOf = displayDate(report.asOfDate);
-    await sendGrid.send({
+    await sgMail.send({
       to: this.config.to,
       cc: this.config.cc.length > 0 ? this.config.cc : undefined,
       from: this.config.from,

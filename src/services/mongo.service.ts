@@ -28,10 +28,15 @@ export class MongoService {
   }
 
   /**
-   * Returns a reference to a specific database.
+   * Returns a reference to a specific database (defaults to MONGODB_SNAPSHOT_DB, CONTRACT_DB, or 'ContractDataDB').
    */
-  getDb(dbName: string): Db {
-    return this.client.db(dbName);
+  getDb(dbName?: string): Db {
+    const targetDb =
+      dbName ||
+      process.env.MONGODB_SNAPSHOT_DB?.trim() ||
+      process.env.CONTRACT_DB?.trim() ||
+      'ContractDataDB';
+    return this.client.db(targetDb);
   }
 
   /**
