@@ -14,6 +14,7 @@ interface DashboardConfig {
   >;
 }
 const dashboardConfig = rawConfig as unknown as DashboardConfig;
+import { renderPieChartPng } from '../utils/pie-chart.renderer';
 import {
   COLORS,
   MONEY,
@@ -86,6 +87,8 @@ export class ExecutiveDashboardTab implements IDashboardTab {
     }
 
     this.writeWorstDealers(ws, model, tables);
+
+    this.writeExecutivePieCharts(ws, workbook, model);
 
     ws.columns = [
       { width: 24 },
@@ -231,8 +234,8 @@ export class ExecutiveDashboardTab implements IDashboardTab {
     headerRow.getCell(12).value = 'Agent';
 
     headerRow.getCell(13).value = 'Active Contracts';
-    headerRow.getCell(14).value = 'Claim Count';
-    headerRow.getCell(15).value = 'Claims Paid';
+    headerRow.getCell(14).value = 'Frequency of Claims';
+    headerRow.getCell(15).value = 'Claim Severity';
     headerRow.getCell(16).value = 'Net Admin';
     headerRow.getCell(17).value = 'Earned Reserve';
     headerRow.getCell(18).value = 'Earned Loss Ratio';
@@ -261,11 +264,15 @@ export class ExecutiveDashboardTab implements IDashboardTab {
       row.getCell(13).numFmt = INTEGER;
       row.getCell(13).alignment = { horizontal: 'center' };
 
-      row.getCell(14).value = dealer.claimCount;
-      row.getCell(14).numFmt = INTEGER;
+      row.getCell(14).value =
+        dealer.claimFrequency ??
+        (dealer.contractsWritten > 0 ? dealer.claimCount / dealer.contractsWritten : null);
+      row.getCell(14).numFmt = PERCENT;
       row.getCell(14).alignment = { horizontal: 'center' };
 
-      row.getCell(15).value = dealer.claimsPaid;
+      row.getCell(15).value =
+        dealer.claimSeverity ??
+        (dealer.claimCount > 0 ? dealer.claimsPaid / dealer.claimCount : null);
       row.getCell(15).numFmt = MONEY;
       row.getCell(15).alignment = { horizontal: 'center' };
 
@@ -295,6 +302,251 @@ export class ExecutiveDashboardTab implements IDashboardTab {
         ref: `R${startRow + 2}:R${startRow + 1 + worst.length}`,
         rules: [dataBarRule(20)],
       });
+    }
+  }
+
+  private writeExecutivePieCharts(
+    ws: ExcelJS.Worksheet,
+    workbook: ExcelJS.Workbook,
+    model: ReportModel,
+  ): void {
+    const products = [...model.itdProducts].filter(
+      (p) => p.netReserve > 0 || p.claimsPaid > 0 || p.netAdmin > 0,
+    );
+    if (products.length === 0) return;
+
+    // Palette for products: consistent color per product
+    const COLOR_PALETTE = [
+      '#1F4E79', // Navy
+      '#2CA02C', // Green
+      '#D9534F', // Coral / Red
+      '#FF7F0E', // Orange
+      '#9467BD', // Purple
+      '#17BECF', // Teal
+      '#8C564B', // Brown
+      '#E377C2', // Pink
+      '#7F7F7F', // Gray
+      '#BCBD22', // Olive
+    ];
+
+    const productColors = new Map<string, string>();
+    products.forEach((p, idx) => {
+      productColors.set(p.name, COLOR_PALETTE[idx % COLOR_PALETTE.length]!);
+    });
+
+    const startRow = Math.max(45, (ws.lastRow?.number ?? 42) + 3);
+
+    // Section Banner
+    ws.mergeCells(startRow, 1, startRow, 19);
+    const banner = ws.getCell(startRow, 1);
+    banner.value = 'PORTFOLIO PRODUCT & REVENUE DISTRIBUTION (INCEPTION TO DATE)';
+    banner.font = { bold: true, size: 12, color: { argb: COLORS.navy } };
+    banner.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBF1F5' } };
+    banner.alignment = { vertical: 'middle', indent: 1 };
+    ws.getRow(startRow).height = 24;
+
+    const chartHeaderRow = startRow + 2;
+    const legendHeaderRow = chartHeaderRow + 1;
+    const contentStartRow = legendHeaderRow + 1;
+    const CHART_ROWS = Math.max(12, products.length + 3);
+
+    // Lock row heights for all chart rows so the images never get squished or overlap text
+    for (let r = chartHeaderRow; r <= contentStartRow + CHART_ROWS; r++) {
+      ws.getRow(r).height = 20;
+    }
+
+    // ── CHART 1: PRODUCT MIX (NET WRITTEN RESERVE) ──
+    // Cols 1-5
+    ws.mergeCells(chartHeaderRow, 1, chartHeaderRow, 5);
+    const h1 = ws.getCell(chartHeaderRow, 1);
+    h1.value = 'OVERALL PRODUCT MIX (NET RESERVE)';
+    h1.font = { bold: true, size: 10, color: { argb: COLORS.white } };
+    h1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.navy } };
+    h1.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    ws.getCell(legendHeaderRow, 3).value = 'Product';
+    ws.getCell(legendHeaderRow, 4).value = 'Net Reserve';
+    ws.getCell(legendHeaderRow, 5).value = 'Share';
+    [3, 4, 5].forEach((c) => {
+      const cell = ws.getCell(legendHeaderRow, c);
+      cell.font = { bold: true, size: 9, color: { argb: COLORS.white } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
+      cell.alignment = { horizontal: c === 3 ? 'left' : 'right', vertical: 'middle' };
+    });
+
+    const reserveProducts = [...products]
+      .filter((p) => p.netReserve > 0)
+      .sort((a, b) => b.netReserve - a.netReserve);
+    const totalReserve = reserveProducts.reduce((sum, p) => sum + p.netReserve, 0);
+
+    reserveProducts.forEach((p, idx) => {
+      const r = contentStartRow + idx;
+      const col3 = ws.getCell(r, 3);
+      const color = productColors.get(p.name) || '#1F4E79';
+      col3.value = `● ${p.displayName || p.name}`;
+      col3.font = { bold: true, size: 9, color: { argb: color.replace('#', '') } };
+      col3.alignment = { horizontal: 'left', vertical: 'middle' };
+
+      const col4 = ws.getCell(r, 4);
+      col4.value = p.netReserve;
+      col4.numFmt = MONEY;
+      col4.alignment = { horizontal: 'right', vertical: 'middle' };
+
+      const col5 = ws.getCell(r, 5);
+      col5.value = totalReserve > 0 ? p.netReserve / totalReserve : 0;
+      col5.numFmt = PERCENT;
+      col5.alignment = { horizontal: 'right', vertical: 'middle' };
+    });
+
+    if (reserveProducts.length > 0 && totalReserve > 0) {
+      try {
+        const slices = reserveProducts.map((p) => ({
+          value: p.netReserve,
+          color: productColors.get(p.name) || '#1F4E79',
+        }));
+        const chartPng = renderPieChartPng(slices, 440, 440);
+        const imageId = workbook.addImage({
+          base64: `data:image/png;base64,${chartPng.toString('base64')}`,
+          extension: 'png',
+        });
+        ws.addImage(imageId, {
+          tl: { col: 0.15, row: contentStartRow - 0.7 },
+          ext: { width: 190, height: 190 },
+        });
+      } catch (err) {
+        console.warn('Failed rendering Executive Product Mix Pie Chart:', err);
+      }
+    }
+
+    // ── CHART 2: ADMIN REVENUE MIX ──
+    // Cols 8-13
+    ws.mergeCells(chartHeaderRow, 8, chartHeaderRow, 13);
+    const h2 = ws.getCell(chartHeaderRow, 8);
+    h2.value = 'ADMIN REVENUE MIX (NET ADMIN)';
+    h2.font = { bold: true, size: 10, color: { argb: COLORS.white } };
+    h2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.navy } };
+    h2.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    ws.getCell(legendHeaderRow, 11).value = 'Product';
+    ws.getCell(legendHeaderRow, 12).value = 'Net Admin';
+    ws.getCell(legendHeaderRow, 13).value = 'Share';
+    [11, 12, 13].forEach((c) => {
+      const cell = ws.getCell(legendHeaderRow, c);
+      cell.font = { bold: true, size: 9, color: { argb: COLORS.white } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
+      cell.alignment = { horizontal: c === 11 ? 'left' : 'right', vertical: 'middle' };
+    });
+
+    const adminProducts = [...products]
+      .filter((p) => p.netAdmin > 0)
+      .sort((a, b) => b.netAdmin - a.netAdmin);
+    const totalAdmin = adminProducts.reduce((sum, p) => sum + p.netAdmin, 0);
+
+    adminProducts.forEach((p, idx) => {
+      const r = contentStartRow + idx;
+      const col11 = ws.getCell(r, 11);
+      const color = productColors.get(p.name) || '#1F4E79';
+      col11.value = `● ${p.displayName || p.name}`;
+      col11.font = { bold: true, size: 9, color: { argb: color.replace('#', '') } };
+      col11.alignment = { horizontal: 'left', vertical: 'middle' };
+
+      const col12 = ws.getCell(r, 12);
+      col12.value = p.netAdmin;
+      col12.numFmt = MONEY;
+      col12.alignment = { horizontal: 'right', vertical: 'middle' };
+
+      const col13 = ws.getCell(r, 13);
+      col13.value = totalAdmin > 0 ? p.netAdmin / totalAdmin : 0;
+      col13.numFmt = PERCENT;
+      col13.alignment = { horizontal: 'right', vertical: 'middle' };
+    });
+
+    if (adminProducts.length > 0 && totalAdmin > 0) {
+      try {
+        const slices = adminProducts.map((p) => ({
+          value: p.netAdmin,
+          color: productColors.get(p.name) || '#1F4E79',
+        }));
+        const chartPng = renderPieChartPng(slices, 440, 440);
+        const imageId = workbook.addImage({
+          base64: `data:image/png;base64,${chartPng.toString('base64')}`,
+          extension: 'png',
+        });
+        ws.addImage(imageId, {
+          tl: { col: 7.2, row: contentStartRow - 0.7 },
+          ext: { width: 190, height: 190 },
+        });
+      } catch (err) {
+        console.warn('Failed rendering Executive Admin Revenue Pie Chart:', err);
+      }
+    }
+
+    // ── CHART 3: CLAIMS PAID & LOSS RATIO MIX ──
+    // Cols 14-19
+    ws.mergeCells(chartHeaderRow, 14, chartHeaderRow, 19);
+    const h3 = ws.getCell(chartHeaderRow, 14);
+    h3.value = 'CLAIMS PAID & LOSS RATIO MIX';
+    h3.font = { bold: true, size: 10, color: { argb: COLORS.white } };
+    h3.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.navy } };
+    h3.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    ws.getCell(legendHeaderRow, 17).value = 'Product';
+    ws.getCell(legendHeaderRow, 18).value = 'Claims Paid';
+    ws.getCell(legendHeaderRow, 19).value = 'Loss Ratio';
+    [17, 18, 19].forEach((c) => {
+      const cell = ws.getCell(legendHeaderRow, c);
+      cell.font = { bold: true, size: 9, color: { argb: COLORS.white } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.blue } };
+      cell.alignment = { horizontal: c === 17 ? 'left' : 'right', vertical: 'middle' };
+    });
+
+    const claimsProducts = [...products]
+      .filter((p) => p.claimsPaid > 0)
+      .sort((a, b) => b.claimsPaid - a.claimsPaid);
+    const totalClaims = claimsProducts.reduce((sum, p) => sum + p.claimsPaid, 0);
+
+    claimsProducts.forEach((p, idx) => {
+      const r = contentStartRow + idx;
+      const col17 = ws.getCell(r, 17);
+      const color = productColors.get(p.name) || '#1F4E79';
+      col17.value = `● ${p.displayName || p.name}`;
+      col17.font = { bold: true, size: 9, color: { argb: color.replace('#', '') } };
+      col17.alignment = { horizontal: 'left', vertical: 'middle' };
+
+      const col18 = ws.getCell(r, 18);
+      col18.value = p.claimsPaid;
+      col18.numFmt = MONEY;
+      col18.alignment = { horizontal: 'right', vertical: 'middle' };
+
+      const col19 = ws.getCell(r, 19);
+      col19.value = p.earnedLossRatio;
+      col19.numFmt = PERCENT;
+      col19.alignment = { horizontal: 'right', vertical: 'middle' };
+      if ((p.earnedLossRatio || 0) > 0.8) {
+        col19.font = { bold: true, color: { argb: 'FF9C0006' } };
+      } else {
+        col19.font = { bold: true, color: { argb: 'FF006100' } };
+      }
+    });
+
+    if (claimsProducts.length > 0 && totalClaims > 0) {
+      try {
+        const slices = claimsProducts.map((p) => ({
+          value: p.claimsPaid,
+          color: productColors.get(p.name) || '#1F4E79',
+        }));
+        const chartPng = renderPieChartPng(slices, 440, 440);
+        const imageId = workbook.addImage({
+          base64: `data:image/png;base64,${chartPng.toString('base64')}`,
+          extension: 'png',
+        });
+        ws.addImage(imageId, {
+          tl: { col: 13.2, row: contentStartRow - 0.7 },
+          ext: { width: 190, height: 190 },
+        });
+      } catch (err) {
+        console.warn('Failed rendering Executive Claims & Loss Ratio Pie Chart:', err);
+      }
     }
   }
 }

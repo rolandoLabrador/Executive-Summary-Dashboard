@@ -91,9 +91,9 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       { width: 16 }, // Average admin
       { width: 16 }, // Net Reserve
       { width: 16 }, // Earned Reserve
-      { width: 16 }, // Claims Paid
+      { width: 16 }, // Claim Severity
       { width: 16 }, // Underwriting Profit
-      { width: 12 }, // Claim Count
+      { width: 16 }, // Frequency of Claims
       { width: 16 }, // Earned Loss Ratio
       { width: 14 }, // % Earned
       { width: 17 }, // Cancellation Rate
@@ -128,9 +128,9 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       'Average admin',
       'Net Reserve',
       'Earned Reserve',
-      'Claims Paid',
+      'Claim Severity',
       'Underwriting Profit',
-      'Claim Count',
+      'Frequency of Claims',
       'Earned Loss Ratio',
       '% Earned',
       'Cancellation Rate',
@@ -155,22 +155,23 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
         item.adminPerContract,
         item.netReserve,
         item.earnedReserve,
-        item.claimsPaid,
+        item.claimSeverity ?? (item.claimCount > 0 ? item.claimsPaid / item.claimCount : null),
         item.underwritingProfit,
-        item.claimCount,
+        item.claimFrequency ??
+          (item.contractsWritten > 0 ? item.claimCount / item.contractsWritten : null),
         item.earnedLossRatio,
         item.percentEarned ?? (item.netReserve > 0 ? item.earnedReserve / item.netReserve : null),
         item.cancellationRate,
         item.earnedLossRatio,
       ];
       const offset = this.isDealer ? 2 : 0;
-      [3, 4, 6, 13].forEach((column) => {
+      [3, 4, 6].forEach((column) => {
         row.getCell(column + offset).numFmt = INTEGER;
       });
       [5, 7, 8, 9, 10, 11, 12].forEach((column) => {
         row.getCell(column + offset).numFmt = MONEY;
       });
-      [14, 15, 16, 17].forEach((column) => {
+      [13, 14, 15, 16, 17].forEach((column) => {
         row.getCell(column + offset).numFmt = PERCENT;
       });
 

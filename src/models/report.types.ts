@@ -96,6 +96,8 @@ export interface MetricValues {
   earnedReserve: number;
   claimsPaid: number;
   claimCount: number;
+  claimFrequency: number | null;
+  claimSeverity: number | null;
   underwritingProfit: number;
   grossIncomeWritten: number;
   grossIncomeCancelled: number;
@@ -171,6 +173,8 @@ export interface DataQualityIssue {
   severity: 'Warning' | 'Error';
   category: string;
   contractNumber: string;
+  agent?: string;
+  agentName?: string;
   dealerName: string;
   sourceId: string;
   message: string;

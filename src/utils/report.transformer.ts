@@ -33,6 +33,8 @@ const EMPTY_METRICS: MetricValues = {
   earnedReserve: 0,
   claimsPaid: 0,
   claimCount: 0,
+  claimFrequency: null,
+  claimSeverity: null,
   underwritingProfit: 0,
   grossIncomeWritten: 0,
   grossIncomeCancelled: 0,
@@ -315,10 +317,12 @@ function finalize(metrics: MetricValues): MetricValues {
   result.earnedLossRatio =
     result.earnedReserve > 0 ? result.claimsPaid / result.earnedReserve : null;
   result.percentEarned = result.netReserve > 0 ? result.earnedReserve / result.netReserve : null;
-  result.percentEarned =
-    result.netReserve > 0 ? result.earnedReserve / result.netReserve : null;
+  result.percentEarned = result.netReserve > 0 ? result.earnedReserve / result.netReserve : null;
   result.cancellationRate =
     result.contractsWritten > 0 ? result.contractsCancelled / result.contractsWritten : null;
+  result.claimFrequency =
+    result.contractsWritten > 0 ? result.claimCount / result.contractsWritten : null;
+  result.claimSeverity = result.claimCount > 0 ? result.claimsPaid / result.claimCount : null;
   result.adminPerContract =
     result.activeContracts > 0 ? result.netAdmin / result.activeContracts : null;
 
@@ -412,19 +416,21 @@ function aggregate(
   result.contractsCancelled = cancelledContracts.size;
 
   for (const [contractNumber, state] of contractStates.entries()) {
+    const latest = latestState.get(contractNumber);
     const net = state.written - state.cancelled;
     if (state.cancelled > 0 && state.written > 0) {
       result.earnedReserve += Math.max(0, net);
     } else if (state.written > 0) {
       let factor = 1.0;
-      if (state.schedule && state.effectiveDate) {
+      if (latest?.contractStatus === 'E') {
+        factor = 1.0;
+      } else if (state.schedule && state.effectiveDate) {
         const elapsed = elapsedMonths(state.effectiveDate, end);
         factor = elapsed <= 0 ? 0 : (state.schedule[elapsed] ?? 1.0);
       }
       result.earnedReserve += state.written * factor;
     }
 
-    const latest = latestState.get(contractNumber);
     const isActive = latest?.contractStatus === 'A' && latest?.transactionType !== 'Cancellation';
     if (isActive) {
       result.netAdmin += state.adminWritten - state.adminCancelled;
@@ -451,6 +457,8 @@ function normalizeContract(
   const sourceId = idOf(document);
   const contractNumber = businessId(metadata['Contract#']);
   const dealerName = text(metadata.DealerName);
+  const agent = text(metadata.Agent) || text(metadata['Agent Number']) || 'Unassigned';
+  const agentName = text(metadata.AgentName ?? metadata['Agent Name']);
 
   let transactionType =
     forceType ||
@@ -474,6 +482,8 @@ function normalizeContract(
       severity: 'Warning',
       category: 'Data Validation',
       contractNumber,
+      agent,
+      agentName,
       dealerName,
       sourceId,
       message:
@@ -490,6 +500,8 @@ function normalizeContract(
       severity: 'Error',
       category: isCancellation ? 'Missing Cancel Bill Date' : 'Missing Activation Date',
       contractNumber,
+      agent,
+      agentName,
       dealerName,
       sourceId,
       message: isCancellation
@@ -505,6 +517,8 @@ function normalizeContract(
       severity: 'Error',
       category: 'Missing Contract Number',
       contractNumber,
+      agent,
+      agentName,
       dealerName,
       sourceId,
       message: 'Contract transaction has no contract number.',
@@ -515,6 +529,8 @@ function normalizeContract(
       severity: 'Warning',
       category: 'Unknown Transaction',
       contractNumber,
+      agent,
+      agentName,
       dealerName,
       sourceId,
       message: 'Transaction type could not be classified and is excluded from KPIs.',
@@ -669,6 +685,9 @@ function normalizeClaim(
 
   const activityDate = firstDate(document['Date Paid'], document['Claim Date Claim is Reported']);
 
+  const agent = text(document['Agent Number'] ?? document.Agent) || 'Unassigned';
+  const agentName = text(document['Agent Name'] ?? document.AgentName);
+
   if (status.toLowerCase() !== 'paid' && activity.toLowerCase() !== 'payment issued') return null;
   if (paid === 0) return null;
   if (!activityDate) {
@@ -676,6 +695,8 @@ function normalizeClaim(
       severity: 'Error',
       category: 'Invalid Claim Date',
       contractNumber,
+      agent,
+      agentName,
       dealerName,
       sourceId,
       message: 'Paid claim has no usable paid or reported date.',
@@ -1085,7 +1106,9 @@ export class ReportTransformer {
             tx.earnedReserveAmount = Math.max(0, state.written - state.cancelled);
           } else if (state.written > 0) {
             let factor = 1.0;
-            if (state.schedule && state.effectiveDate) {
+            if (tx.contractStatus === 'E') {
+              factor = 1.0;
+            } else if (state.schedule && state.effectiveDate) {
               const elapsed = elapsedMonths(state.effectiveDate, currentEnd);
               factor = elapsed <= 0 ? 0 : (state.schedule[elapsed] ?? 1.0);
             }

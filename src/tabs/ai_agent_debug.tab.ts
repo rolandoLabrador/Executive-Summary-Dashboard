@@ -10,7 +10,11 @@ import {
   title,
   formatDate,
 } from '../utils/excel.utils';
-import { AiAnalystService, type TargetSummaryData } from '../services/ai_analyst.service';
+import {
+  AiAnalystService,
+  type TargetSummaryData,
+  type ProductLineSummary,
+} from '../services/ai_analyst.service';
 
 export class AiAgentDebugTab implements IDashboardTab {
   readonly id = 'tab_ai_agent_debug';
@@ -47,8 +51,9 @@ export class AiAgentDebugTab implements IDashboardTab {
       { width: 18, numFmt: MONEY }, // F: Earned Reserve
       { width: 18, numFmt: MONEY }, // G: Claims Paid
       { width: 16, numFmt: PERCENT }, // H: Loss Ratio
-      { width: 14, numFmt: PERCENT }, // I: % Earned
-      { width: 28 }, // J: Underwriting Credibility & Status
+      { width: 16, numFmt: PERCENT }, // I: Frequency of Claims
+      { width: 14, numFmt: PERCENT }, // J: % Earned
+      { width: 28 }, // K: Underwriting Credibility & Status
     ];
 
     // 1. Header Title
@@ -143,6 +148,65 @@ export class AiAgentDebugTab implements IDashboardTab {
       return { tenureMonths, tenureYears, seasoningClassification };
     }
 
+    // Helper to extract product lines and detect cross-subsidization
+    function buildProductLines(
+      targetContracts: typeof model.contractTransactions,
+      targetClaims: typeof model.claims,
+    ): ProductLineSummary[] {
+      const contractProductMap = new Map<string, string>();
+      for (const t of targetContracts) {
+        if (t.contractNumber && t.product) {
+          contractProductMap.set(t.contractNumber, t.product);
+        }
+      }
+
+      const productNames = new Set<string>();
+      targetContracts.forEach((t) => productNames.add(t.product || 'Standard'));
+      targetClaims.forEach((c) => {
+        const p = contractProductMap.get(c.contractNumber) || c.product || 'Standard';
+        productNames.add(p);
+      });
+
+      const lines: ProductLineSummary[] = [];
+      for (const prod of productNames) {
+        let pWritten = 0;
+        let pEarned = 0;
+        targetContracts
+          .filter((t) => (t.product || 'Standard') === prod)
+          .forEach((t) => {
+            if (t.transactionType !== 'Cancellation') {
+              pWritten += t.reserveAmount;
+              pEarned += t.earnedReserveAmount;
+            } else {
+              pWritten -= Math.abs(t.reserveAmount);
+            }
+          });
+
+        const pClaims = targetClaims
+          .filter(
+            (c) => (contractProductMap.get(c.contractNumber) || c.product || 'Standard') === prod,
+          )
+          .reduce((sum, c) => sum + c.paidAmount, 0);
+
+        if (pWritten > 0 || pEarned > 0 || pClaims > 0) {
+          const pProfit = pEarned - pClaims;
+          const pLr = pEarned > 0 ? pClaims / pEarned : null;
+          lines.push({
+            name: prod,
+            writtenReserve: pWritten,
+            earnedReserve: pEarned,
+            claimsPaid: pClaims,
+            underwritingProfit: pProfit,
+            lossRatio: pLr,
+          });
+        }
+      }
+
+      // Sort by largest loss first (most negative profit)
+      lines.sort((a, b) => a.underwritingProfit - b.underwritingProfit);
+      return lines;
+    }
+
     // Check Agents
     for (const agentInput of debugAgents) {
       const rolling = model.agents.find((a) => matchesAgent(a.name, a.displayName, [agentInput]));
@@ -188,6 +252,8 @@ export class AiAgentDebugTab implements IDashboardTab {
         itdContracts,
       );
 
+      const productLines = buildProductLines(targetContracts, targetClaims);
+
       targets.push({
         type: 'Agent',
         name: itd?.displayName || rolling?.displayName || agentInput.toUpperCase(),
@@ -210,7 +276,15 @@ export class AiAgentDebugTab implements IDashboardTab {
         itdEarnedReserve,
         itdClaims: itd?.claimsPaid || 0,
         itdLossRatio: itd?.earnedLossRatio ?? 0,
+        itdClaimFrequency:
+          itd?.claimFrequency ?? (itdContracts > 0 ? (itd?.claimCount || 0) / itdContracts : 0),
+        rollingClaimFrequency:
+          rolling?.claimFrequency ??
+          ((rolling?.contractsWritten || 0) > 0
+            ? (rolling?.claimCount || 0) / (rolling?.contractsWritten || 1)
+            : 0),
         topLossCodes,
+        productLines,
       });
     }
 
@@ -266,6 +340,8 @@ export class AiAgentDebugTab implements IDashboardTab {
         itdContracts,
       );
 
+      const productLines = buildProductLines(targetContracts, targetClaims);
+
       targets.push({
         type: 'Dealer',
         name: itd?.displayName || rolling?.displayName || dealerInput.toUpperCase(),
@@ -285,7 +361,15 @@ export class AiAgentDebugTab implements IDashboardTab {
         itdEarnedReserve,
         itdClaims: itd?.claimsPaid || 0,
         itdLossRatio: itd?.earnedLossRatio ?? 0,
+        itdClaimFrequency:
+          itd?.claimFrequency ?? (itdContracts > 0 ? (itd?.claimCount || 0) / itdContracts : 0),
+        rollingClaimFrequency:
+          rolling?.claimFrequency ??
+          ((rolling?.contractsWritten || 0) > 0
+            ? (rolling?.claimCount || 0) / (rolling?.contractsWritten || 1)
+            : 0),
         topLossCodes,
+        productLines,
       });
     }
 
@@ -330,7 +414,7 @@ export class AiAgentDebugTab implements IDashboardTab {
     currentRow = textEndRow + 2;
 
     // 5. Target Performance Profile Table
-    ws.mergeCells(`A${currentRow}:J${currentRow}`);
+    ws.mergeCells(`A${currentRow}:K${currentRow}`);
     const tableTitle = ws.getCell(`A${currentRow}`);
     tableTitle.value = '📊 TARGET PERFORMANCE METRICS (ROLLING 12 vs. INCEPTION-TO-DATE)';
     tableTitle.font = { name: 'Aptos', size: 11, bold: true, color: { argb: COLORS.navy } };
@@ -346,6 +430,7 @@ export class AiAgentDebugTab implements IDashboardTab {
       'Earned Reserve ($)',
       'Claims Paid ($)',
       'Loss Ratio',
+      'Frequency of Claims',
       '% Earned',
       'Actuarial Credibility & Status',
     ];
@@ -389,6 +474,7 @@ export class AiAgentDebugTab implements IDashboardTab {
 
       // Rolling 12 row
       const r12PctEarned = t.rollingReserve > 0 ? 1 : 0;
+      const r12Freq = t.rollingClaimFrequency ?? 0;
       const r12Row = ws.addRow([
         `${t.name} (${t.code})`,
         t.type,
@@ -398,6 +484,7 @@ export class AiAgentDebugTab implements IDashboardTab {
         t.rollingReserve, // Proxy for rolling earned
         t.rollingClaims,
         t.rollingLossRatio,
+        r12Freq,
         r12PctEarned,
         getCredibilityStatus(t.rollingLossRatio, false),
       ]);
@@ -406,7 +493,8 @@ export class AiAgentDebugTab implements IDashboardTab {
       r12Row.getCell(8).font = { bold: true };
       r12Row.getCell(8).numFmt = PERCENT;
       r12Row.getCell(9).numFmt = PERCENT;
-      r12Row.getCell(10).font = {
+      r12Row.getCell(10).numFmt = PERCENT;
+      r12Row.getCell(11).font = {
         bold: true,
         color: {
           argb:
@@ -422,6 +510,7 @@ export class AiAgentDebugTab implements IDashboardTab {
       // ITD row
       const itdPctEarned = t.itdReserve > 0 ? t.itdEarnedReserve / t.itdReserve : 0;
       const itdPeriodStr = `ITD (${t.tenureYears} Yrs, Since ${dateStr})`;
+      const itdFreq = t.itdClaimFrequency ?? 0;
       const itdRow = ws.addRow([
         `${t.name} (${t.code})`,
         t.type,
@@ -431,6 +520,7 @@ export class AiAgentDebugTab implements IDashboardTab {
         t.itdEarnedReserve,
         t.itdClaims,
         t.itdLossRatio,
+        itdFreq,
         itdPctEarned,
         getCredibilityStatus(t.itdLossRatio, true),
       ]);
@@ -440,7 +530,8 @@ export class AiAgentDebugTab implements IDashboardTab {
       itdRow.getCell(8).font = { bold: true };
       itdRow.getCell(8).numFmt = PERCENT;
       itdRow.getCell(9).numFmt = PERCENT;
-      itdRow.getCell(10).font = {
+      itdRow.getCell(10).numFmt = PERCENT;
+      itdRow.getCell(11).font = {
         bold: true,
         color: {
           argb:
@@ -453,6 +544,89 @@ export class AiAgentDebugTab implements IDashboardTab {
         },
       };
       currentRow++;
+    }
+
+    currentRow += 2;
+
+    // 5.5 Product Line Underwriting & Cross-Subsidization Analysis
+    ws.mergeCells(`A${currentRow}:J${currentRow}`);
+    const prodTableTitle = ws.getCell(`A${currentRow}`);
+    prodTableTitle.value = '🎯 PRODUCT LINE UNDERWRITING & CROSS-SUBSIDIZATION ANALYSIS';
+    prodTableTitle.font = { name: 'Aptos', size: 11, bold: true, color: { argb: COLORS.navy } };
+    currentRow++;
+
+    const prodHeaders = [
+      'Target Context',
+      'Product / Coverage Line',
+      'Underwriting Role',
+      'Written Reserve ($)',
+      'Earned Reserve ($)',
+      'Claims Paid ($)',
+      'UW Profit / (Deficit)',
+      'Loss Ratio',
+      '% of Claims',
+      'Cross-Subsidization Assessment',
+    ];
+    const prodHeaderRow = ws.getRow(currentRow);
+    prodHeaderRow.values = prodHeaders;
+    prodHeaderRow.font = { name: 'Aptos', size: 10, bold: true, color: { argb: COLORS.white } };
+    prodHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } };
+    prodHeaderRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    ws.getCell(`A${currentRow}`).alignment = { vertical: 'middle', horizontal: 'left' };
+    currentRow++;
+
+    for (const t of targets) {
+      if (!t.productLines || t.productLines.length === 0) continue;
+      for (const p of t.productLines) {
+        const isLoss = p.underwritingProfit < 0;
+        const claimShare = t.itdClaims > 0 ? p.claimsPaid / t.itdClaims : 0;
+        const roleLabel =
+          p.underwritingProfit < -10000
+            ? '🔴 CRITICAL LOSS DRIVER'
+            : p.underwritingProfit < 0
+              ? '🔴 LOSS DEFICIT'
+              : p.underwritingProfit === 0
+                ? '⚪ BREAK-EVEN'
+                : '🟢 PROFITABLE SUBSIDIZER';
+
+        const assessment = isLoss
+          ? `Bleeding -$${Math.abs(Math.round(p.underwritingProfit)).toLocaleString()} (${((p.lossRatio || 0) * 100).toFixed(1)}% LR)`
+          : `Subsidizing with +$${Math.round(p.underwritingProfit).toLocaleString()} surplus (${((p.lossRatio || 0) * 100).toFixed(1)}% LR)`;
+
+        const row = ws.addRow([
+          `${t.name} (${t.code})`,
+          p.name,
+          roleLabel,
+          p.writtenReserve,
+          p.earnedReserve,
+          p.claimsPaid,
+          p.underwritingProfit,
+          p.lossRatio,
+          claimShare,
+          assessment,
+        ]);
+
+        row.font = { name: 'Aptos', size: 9 };
+        row.getCell(4).numFmt = MONEY;
+        row.getCell(5).numFmt = MONEY;
+        row.getCell(6).numFmt = MONEY;
+        row.getCell(7).numFmt = MONEY;
+        row.getCell(8).numFmt = PERCENT;
+        row.getCell(9).numFmt = PERCENT;
+
+        if (isLoss) {
+          row.getCell(3).font = { bold: true, color: { argb: 'FF9C0006' } };
+          row.getCell(7).font = { bold: true, color: { argb: 'FF9C0006' } };
+          row.getCell(8).font = { bold: true, color: { argb: 'FF9C0006' } };
+          row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEBEE' } };
+        } else {
+          row.getCell(3).font = { bold: true, color: { argb: 'FF006100' } };
+          row.getCell(7).font = { bold: true, color: { argb: 'FF006100' } };
+          row.getCell(8).font = { bold: true, color: { argb: 'FF006100' } };
+          row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
+        }
+        currentRow++;
+      }
     }
 
     currentRow += 2;

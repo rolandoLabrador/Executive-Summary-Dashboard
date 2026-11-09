@@ -477,6 +477,8 @@ export class DuckDBService {
     const earnedLossRatio = earnedReserve > 0 ? claimsPaid / earnedReserve : null;
     const percentEarned = netReserve > 0 ? earnedReserve / netReserve : null;
     const cancellationRate = contractsWritten > 0 ? contractsCancelled / contractsWritten : null;
+    const claimFrequency = contractsWritten > 0 ? claimCount / contractsWritten : null;
+    const claimSeverity = claimCount > 0 ? claimsPaid / claimCount : null;
     const adminPerContract = activeContracts > 0 ? netAdmin / activeContracts : null;
 
     return {
@@ -493,6 +495,8 @@ export class DuckDBService {
       earnedReserve,
       claimsPaid,
       claimCount,
+      claimFrequency,
+      claimSeverity,
       underwritingProfit,
       grossIncomeWritten,
       grossIncomeCancelled,
@@ -554,6 +558,8 @@ export class DuckDBService {
       earnedReserve: r.netReserve,
       claimsPaid: 0,
       claimCount: 0,
+      claimFrequency: null,
+      claimSeverity: null,
       underwritingProfit: r.netReserve,
       grossIncomeWritten: 0,
       grossIncomeCancelled: 0,

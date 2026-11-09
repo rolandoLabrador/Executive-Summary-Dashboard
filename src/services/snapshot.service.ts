@@ -82,8 +82,10 @@ export class SnapshotService {
         claimsPaid: d.claimsPaid,
         underwritingProfit: d.underwritingProfit,
         earnedLossRatio: d.earnedLossRatio || 0,
-        percentEarned:
-          d.percentEarned ?? (d.netReserve > 0 ? d.earnedReserve / d.netReserve : 0),
+        claimFrequency:
+          d.claimFrequency ?? (d.contractsWritten > 0 ? d.claimCount / d.contractsWritten : 0),
+        claimSeverity: d.claimSeverity ?? (d.claimCount > 0 ? d.claimsPaid / d.claimCount : 0),
+        percentEarned: d.percentEarned ?? (d.netReserve > 0 ? d.earnedReserve / d.netReserve : 0),
       }));
 
     // Build lean, aggregated JSON payload (< 200KB)

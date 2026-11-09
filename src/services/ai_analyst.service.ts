@@ -1,5 +1,14 @@
 import OpenAI from 'openai';
 
+export interface ProductLineSummary {
+  name: string;
+  writtenReserve: number;
+  earnedReserve: number;
+  claimsPaid: number;
+  underwritingProfit: number;
+  lossRatio: number | null;
+}
+
 export interface TargetSummaryData {
   type: 'Agent' | 'Dealer';
   name: string;
@@ -22,7 +31,10 @@ export interface TargetSummaryData {
   itdEarnedReserve: number;
   itdClaims: number;
   itdLossRatio: number;
+  itdClaimFrequency?: number | null;
+  rollingClaimFrequency?: number | null;
   topLossCodes: Array<{ code: string; description: string; amount: number }>;
+  productLines?: ProductLineSummary[];
 }
 
 export interface PortfolioSummaryData {
@@ -96,14 +108,31 @@ STRICT RULES:
 - CONTEXTUALIZE TENURE & INCEPTION-TO-DATE (CRITICAL):
   * If Seasoned (≥2 years, e.g. 5 years): State that with ${target.tenureYears} years of tenure and ${target.percentReserveEarned.toFixed(1)}% of reserves earned, Inception-to-Date metrics carry high statistical credibility. If the ITD loss ratio is unfavorable (>75%), state factually that this represents seasoned adverse experience that warrants attention.
   * If Emerging / New (<1-2 years or low volume): State that with only ${target.tenureMonths} months of operation and $${Math.round(target.unearnedReserve).toLocaleString()} in unearned reserve (${target.percentReserveEarned.toFixed(1)}% earned), early loss ratios reflect small-sample timing volatility and developing loss emergence rather than seasoned performance.
+- PRODUCT LINE CROSS-SUBSIDIZATION & MASKING RULE (CRITICAL):
+  * Analyze individual product lines to detect cross-subsidization.
+  * If the overall agent loss ratio appears acceptable or moderate (<85%), but ONE product line has an adverse loss ratio (>100% or large negative underwriting deficit), EXPLICITLY STATE that the overall program performance masks severe losses in that product line (name it, its loss ratio, and dollar deficit), which is currently being subsidized by healthy margins in other lines.
+  * Conversely, if an agent has an elevated overall loss ratio driven primarily by a single rogue product line, note that core product lines remain viable while the specific line is causing the distortion.
+- CLAIM FREQUENCY (CLAIMS ÷ CONTRACTS):
+  * Claim frequency is the distinct claim count divided by contracts written. Mention claim frequency (e.g., 8.5% frequency) to assess whether losses stem from high claim incidence (repair churn) or isolated severity.
 - LENGTH: Strictly LESS than one paragraph (2 to 4 factual sentences).
 
 DATA FOR ${target.type.toUpperCase()}: ${target.name} ${target.code ? `(${target.code})` : ''}
 - Program Tenure: ${tenureStr}
 - Maturity Classification: ${target.seasoningClassification}
 - Reserve Seasoning: ${target.percentReserveEarned.toFixed(1)}% of written reserves earned ($${Math.round(target.itdEarnedReserve).toLocaleString()} earned vs. $${Math.round(target.unearnedReserve).toLocaleString()} unearned)
-- Inception-to-Date: ${target.itdContracts.toLocaleString()} total contracts, $${Math.round(target.itdEarnedReserve).toLocaleString()} Earned Reserve, $${Math.round(target.itdClaims).toLocaleString()} Paid Claims, Loss Ratio: ${(target.itdLossRatio * 100).toFixed(1)}%
-- Rolling 12-Month: ${target.rollingContracts.toLocaleString()} written contracts, $${Math.round(target.rollingReserve).toLocaleString()} Net Reserve, $${Math.round(target.rollingClaims).toLocaleString()} Claims Paid, Loss Ratio: ${(target.rollingLossRatio * 100).toFixed(1)}%
+- Inception-to-Date: ${target.itdContracts.toLocaleString()} total contracts, $${Math.round(target.itdEarnedReserve).toLocaleString()} Earned Reserve, $${Math.round(target.itdClaims).toLocaleString()} Paid Claims, Loss Ratio: ${(target.itdLossRatio * 100).toFixed(1)}%, Claim Frequency: ${target.itdClaimFrequency !== null && target.itdClaimFrequency !== undefined ? (target.itdClaimFrequency * 100).toFixed(1) + '%' : 'N/A'}
+- Rolling 12-Month: ${target.rollingContracts.toLocaleString()} written contracts, $${Math.round(target.rollingReserve).toLocaleString()} Net Reserve, $${Math.round(target.rollingClaims).toLocaleString()} Claims Paid, Loss Ratio: ${(target.rollingLossRatio * 100).toFixed(1)}%, Claim Frequency: ${target.rollingClaimFrequency !== null && target.rollingClaimFrequency !== undefined ? (target.rollingClaimFrequency * 100).toFixed(1) + '%' : 'N/A'}
+- Product Line Breakdown (Earned vs. Claims):
+  ${
+    target.productLines && target.productLines.length > 0
+      ? target.productLines
+          .map(
+            (p) =>
+              `* ${p.name}: Earned $${Math.round(p.earnedReserve).toLocaleString()} | Claims $${Math.round(p.claimsPaid).toLocaleString()} | UW Profit/Loss: $${Math.round(p.underwritingProfit).toLocaleString()} | Loss Ratio: ${p.lossRatio !== null ? (p.lossRatio * 100).toFixed(1) + '%' : 'N/A'}`,
+          )
+          .join('\n  ')
+      : 'None recorded'
+  }
 - Primary Claim Exposure: ${target.topLossCodes[0] ? `${target.topLossCodes[0].code} ($${Math.round(target.topLossCodes[0].amount).toLocaleString()} paid)` : 'None recorded'}`;
 
     return this.executeAiPrompt(prompt, () => this.generateDeterministicOverview(target));
@@ -245,7 +274,23 @@ ${portfolio.topLossCode ? `- Primary Portfolio Claim Exposure: Loss Code ${portf
       ? ` Primary claim exposure is ${target.topLossCodes[0].code} ($${Math.round(target.topLossCodes[0].amount).toLocaleString()} paid).`
       : '';
 
-    return `${target.name} (${target.code || target.type}) records an Inception-to-Date Earned Loss Ratio of ${lrPercent}% on $${Math.round(target.itdEarnedReserve).toLocaleString()} earned reserve and $${Math.round(target.itdClaims).toLocaleString()} paid claims. Rolling 12-month volume is ${target.rollingContracts.toLocaleString()} written contracts at a ${rollingLrPercent}% loss ratio. ${maturityContext}${topLossStr}`.trim();
+    // Check for product line cross-subsidization
+    let productSubsidizationStr = '';
+    if (target.productLines && target.productLines.length > 0) {
+      const losingLine = target.productLines.find((p) => p.underwritingProfit < 0);
+      const profitableLine = target.productLines.find((p) => p.underwritingProfit > 0);
+      if (losingLine && profitableLine) {
+        const lossDeficit = Math.abs(Math.round(losingLine.underwritingProfit));
+        const profitSurplus = Math.round(profitableLine.underwritingProfit);
+        const losingLr =
+          losingLine.lossRatio !== null
+            ? `${((losingLine.lossRatio || 0) * 100).toFixed(1)}%`
+            : 'N/A';
+        productSubsidizationStr = ` Cross-subsidization is evident: '${losingLine.name}' operates in an underwriting deficit of -$${lossDeficit.toLocaleString()} (${losingLr} loss ratio), masked and subsidized by surplus in '${profitableLine.name}' (+$${profitSurplus.toLocaleString()}).`;
+      }
+    }
+
+    return `${target.name} (${target.code || target.type}) records an Inception-to-Date Earned Loss Ratio of ${lrPercent}% on $${Math.round(target.itdEarnedReserve).toLocaleString()} earned reserve and $${Math.round(target.itdClaims).toLocaleString()} paid claims. Rolling 12-month volume is ${target.rollingContracts.toLocaleString()} written contracts at a ${rollingLrPercent}% loss ratio. ${maturityContext}${productSubsidizationStr}${topLossStr}`.trim();
   }
 
   private generateDeterministicPortfolioOverview(portfolio: PortfolioSummaryData): string {

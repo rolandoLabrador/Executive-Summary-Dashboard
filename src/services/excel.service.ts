@@ -50,10 +50,14 @@ export class ExcelService {
 
     // Check debug mode
     const debugDealers = process.env.DEBUG_DEALER_NAME
-      ? process.env.DEBUG_DEALER_NAME.split(',').map((s) => s.trim().toLowerCase())
+      ? process.env.DEBUG_DEALER_NAME.split(',')
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean)
       : [];
     const debugAgents = process.env.DEBUG_AGENT_NAME
-      ? process.env.DEBUG_AGENT_NAME.split(',').map((s) => s.trim().toLowerCase())
+      ? process.env.DEBUG_AGENT_NAME.split(',')
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean)
       : [];
     const hasDebug = debugDealers.length > 0 || debugAgents.length > 0;
 

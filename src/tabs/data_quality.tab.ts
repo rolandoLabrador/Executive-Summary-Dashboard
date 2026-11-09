@@ -177,7 +177,60 @@ export class DataQualityTab implements IDashboardTab {
 
     currentRow += 2; // Blank row spacing
 
-    ws.mergeCells(currentRow, 1, currentRow, 6);
+    // --- ISSUES BY AGENT SUMMARY TABLE ---
+    ws.mergeCells(currentRow, 1, currentRow, 4);
+    const agentTitle = ws.getCell(currentRow, 1);
+    agentTitle.value = 'DATA QUALITY ISSUES BY AGENT';
+    agentTitle.font = { bold: true, size: 12, color: { argb: COLORS.navy } };
+    currentRow++;
+
+    const agentHeaderRow = currentRow;
+    ws.getRow(agentHeaderRow).values = ['Agent', 'Errors', 'Warnings', 'Total Issues'];
+    styleHeaderRange(ws, agentHeaderRow, 1, 4);
+    currentRow++;
+
+    const agentBuckets = new Map<string, { errors: number; warnings: number }>();
+    model.dataQualityIssues.forEach((issue) => {
+      const agKey = issue.agentName
+        ? `${issue.agentName} (${issue.agent || 'N/A'})`
+        : issue.agent || 'Unassigned';
+      const b = agentBuckets.get(agKey) || { errors: 0, warnings: 0 };
+      if (issue.severity === 'Error') b.errors++;
+      if (issue.severity === 'Warning') b.warnings++;
+      agentBuckets.set(agKey, b);
+    });
+
+    const sortedAgentBuckets = Array.from(agentBuckets.entries()).sort(
+      (a, b) => b[1].errors + b[1].warnings - (a[1].errors + a[1].warnings),
+    );
+
+    if (sortedAgentBuckets.length === 0) {
+      ws.getCell(currentRow, 1).value = 'No issues attributed to agents.';
+      ws.getCell(currentRow, 1).font = { italic: true };
+      currentRow++;
+    } else {
+      sortedAgentBuckets.slice(0, 15).forEach(([agName, bCounts]) => {
+        const row = ws.getRow(currentRow);
+        row.getCell(1).value = agName;
+        row.getCell(2).value = bCounts.errors;
+        row.getCell(3).value = bCounts.warnings;
+        row.getCell(4).value = bCounts.errors + bCounts.warnings;
+
+        [2, 3, 4].forEach((col) => {
+          row.getCell(col).numFmt = INTEGER;
+          row.getCell(col).alignment = { horizontal: 'center' };
+        });
+
+        if (bCounts.errors > 0) {
+          row.getCell(2).font = { color: { argb: '9C0006' }, bold: true };
+        }
+        currentRow++;
+      });
+    }
+
+    currentRow += 2; // Blank row spacing
+
+    ws.mergeCells(currentRow, 1, currentRow, 7);
     const detailTitle = ws.getCell(currentRow, 1);
     detailTitle.value = 'DETAILED ISSUE LOG';
     detailTitle.font = { bold: true, size: 12, color: { argb: COLORS.navy } };
@@ -188,19 +241,24 @@ export class DataQualityTab implements IDashboardTab {
       'Severity',
       'Category',
       'Contract Number',
+      'Agent',
       'Dealer Name',
       'Source ID',
       'Message',
     ];
-    styleHeaderRange(ws, issuesHeaderRow, 1, 6);
+    styleHeaderRange(ws, issuesHeaderRow, 1, 7);
     currentRow++;
 
     const issuesStartRow = currentRow;
     model.dataQualityIssues.forEach((issue) => {
+      const agentDisplay = issue.agentName
+        ? `${issue.agentName} (${issue.agent || 'N/A'})`
+        : issue.agent || 'Unassigned';
       ws.getRow(currentRow).values = [
         issue.severity,
         issue.category,
         issue.contractNumber,
+        agentDisplay,
         issue.dealerName,
         issue.sourceId,
         issue.message,
@@ -209,15 +267,15 @@ export class DataQualityTab implements IDashboardTab {
     });
 
     const finalIssueRow = Math.max(issuesStartRow, currentRow - 1);
-    ws.autoFilter = { from: `A${issuesHeaderRow}`, to: `F${finalIssueRow}` };
+    ws.autoFilter = { from: `A${issuesHeaderRow}`, to: `G${finalIssueRow}` };
     ws.columns = [
       { width: 18 },
       { width: 28 },
       { width: 20 },
+      { width: 26 },
       { width: 32 },
       { width: 28 },
       { width: 60 },
-      { width: 34 },
       { width: 26 },
     ];
   }

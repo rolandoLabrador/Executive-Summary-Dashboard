@@ -190,9 +190,11 @@ export class ContractActivityTab implements IDashboardTab {
           : [];
         const maxScheduleMonth = scheduleKeys.length > 0 ? Math.max(...scheduleKeys) : null;
 
+        const isExpired = item.contractStatus === 'E';
         // What factor did the schedule actually provide at this elapsed month?
-        const factorAtElapsed =
-          item.earningSchedule && elapsed !== null
+        const factorAtElapsed = isExpired
+          ? '1.0 (Expired in PCMI - Status E)'
+          : item.earningSchedule && elapsed !== null
             ? item.earningSchedule[elapsed] !== undefined
               ? `${item.earningSchedule[elapsed]} (from schedule)`
               : `1.0 (defaulted — elapsed ${elapsed} > max ${maxScheduleMonth})`

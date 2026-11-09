@@ -38,8 +38,8 @@ export class MonthlyTrendsTab implements IDashboardTab {
       'Cancellations',
       'Net Admin',
       'Net Reserve',
-      'Claims Paid',
-      'Claim Count',
+      'Claim Severity',
+      'Frequency of Claims',
       'Earned Loss Ratio',
       '% Earned',
       'Cancellation Rate',
@@ -55,21 +55,22 @@ export class MonthlyTrendsTab implements IDashboardTab {
         item.contractsCancelled,
         item.netAdmin,
         item.netReserve,
-        item.claimsPaid,
-        item.claimCount,
+        item.claimSeverity ?? (item.claimCount > 0 ? item.claimsPaid / item.claimCount : null),
+        item.claimFrequency ??
+          (item.contractsWritten > 0 ? item.claimCount / item.contractsWritten : null),
         item.earnedLossRatio,
         item.percentEarned ?? (item.netReserve > 0 ? item.earnedReserve / item.netReserve : null),
         item.cancellationRate,
         item.earnedLossRatio,
       ];
       row.getCell(1).numFmt = 'mmm-yy';
-      [2, 3, 4, 8].forEach((column) => {
+      [2, 3, 4].forEach((column) => {
         row.getCell(column).numFmt = INTEGER;
       });
       [5, 6, 7].forEach((column) => {
         row.getCell(column).numFmt = MONEY;
       });
-      [9, 10, 11, 12].forEach((column) => {
+      [8, 9, 10, 11, 12].forEach((column) => {
         row.getCell(column).numFmt = PERCENT;
       });
     });
