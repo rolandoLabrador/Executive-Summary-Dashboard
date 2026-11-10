@@ -255,6 +255,7 @@ export class SnapshotService {
         inceptionToDate: itd,
         topLossCodes,
         productBuckets,
+        componentBuckets: this.computeComponentBuckets(txByDealer.get(dealerName) || []),
       };
 
       dealerOps.push({
@@ -328,6 +329,7 @@ export class SnapshotService {
         inceptionToDate: itd,
         dealersBreakdown,
         productBuckets,
+        componentBuckets: this.computeComponentBuckets(txByAgent.get(agentName) || []),
       };
 
       agentOps.push({
@@ -438,5 +440,57 @@ export class SnapshotService {
         };
       })
       .sort((a, b) => a.uwProfit - b.uwProfit);
+  }
+
+  /**
+   * Computes component-level breakdown for RESERVE and ADMIN buckets
+   * (e.g. BASERESERVE, BASERESERVEFTP, BASEADMIN, BASEADMINMS, etc.)
+   */
+  private computeComponentBuckets(transactions: readonly NormalizedContractTransaction[]): {
+    reserve: Array<{ component: string; written: number; cancelled: number; net: number }>;
+    admin: Array<{ component: string; written: number; cancelled: number; net: number }>;
+  } {
+    const sums: Record<string, { written: number; cancelled: number; net: number }> = {};
+    for (const t of transactions) {
+      if (!t.components) continue;
+      const isCancel = t.transactionType === 'Cancellation';
+      for (const cat of ['RESERVE', 'ADMIN']) {
+        const catData = t.components[cat];
+        if (!catData) continue;
+        for (const [comp, amt] of Object.entries(catData)) {
+          const key = `${cat}.${comp}`;
+          if (!sums[key]) sums[key] = { written: 0, cancelled: 0, net: 0 };
+          if (isCancel) {
+            sums[key].cancelled -= Math.abs(amt);
+            sums[key].net -= Math.abs(amt);
+          } else {
+            sums[key].written += amt;
+            sums[key].net += amt;
+          }
+        }
+      }
+    }
+
+    const reserve = Object.keys(sums)
+      .filter((k) => k.startsWith('RESERVE.'))
+      .sort()
+      .map((k) => ({
+        component: k.replace('RESERVE.', ''),
+        written: sums[k]!.written,
+        cancelled: sums[k]!.cancelled,
+        net: sums[k]!.net,
+      }));
+
+    const admin = Object.keys(sums)
+      .filter((k) => k.startsWith('ADMIN.'))
+      .sort()
+      .map((k) => ({
+        component: k.replace('ADMIN.', ''),
+        written: sums[k]!.written,
+        cancelled: sums[k]!.cancelled,
+        net: sums[k]!.net,
+      }));
+
+    return { reserve, admin };
   }
 }
