@@ -154,11 +154,27 @@ export class SnapshotService {
     await dealerColl.createIndex({ dealerName: 1, asOfDateStr: 1 }, { unique: true });
     await agentColl.createIndex({ agentName: 1, asOfDateStr: 1 }, { unique: true });
 
-    // Maps for fast O(1) dimension lookups across time horizons
-    const itdDealerMap = new Map(model.itdDealers.map((d) => [d.name, d]));
-    const rollingDealerMap = new Map(model.dealers.map((d) => [d.name, d]));
-    const ytdDealerMap = new Map(model.ytdDealers.map((d) => [d.name, d]));
-    const monthlyDealerMap = new Map(model.monthlyDealers.map((d) => [d.name, d]));
+    // Maps for fast O(1) dimension lookups across time horizons (mapping both code and displayName)
+    const itdDealerMap = new Map<string, (typeof model.itdDealers)[0]>();
+    for (const d of model.itdDealers) {
+      itdDealerMap.set(d.name, d);
+      if (d.displayName) itdDealerMap.set(d.displayName, d);
+    }
+    const rollingDealerMap = new Map<string, (typeof model.dealers)[0]>();
+    for (const d of model.dealers) {
+      rollingDealerMap.set(d.name, d);
+      if (d.displayName) rollingDealerMap.set(d.displayName, d);
+    }
+    const ytdDealerMap = new Map<string, (typeof model.ytdDealers)[0]>();
+    for (const d of model.ytdDealers) {
+      ytdDealerMap.set(d.name, d);
+      if (d.displayName) ytdDealerMap.set(d.displayName, d);
+    }
+    const monthlyDealerMap = new Map<string, (typeof model.monthlyDealers)[0]>();
+    for (const d of model.monthlyDealers) {
+      monthlyDealerMap.set(d.name, d);
+      if (d.displayName) monthlyDealerMap.set(d.displayName, d);
+    }
 
     // Group transactions by dealer and agent in O(N) single pass
     const txByDealer = new Map<string, NormalizedContractTransaction[]>();
