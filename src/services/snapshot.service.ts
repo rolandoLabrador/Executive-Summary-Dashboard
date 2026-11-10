@@ -1,5 +1,9 @@
 import { type Db } from 'mongodb';
-import { type ReportModel } from '../models/report.types';
+import {
+  type NormalizedClaim,
+  type NormalizedContractTransaction,
+  type ReportModel,
+} from '../models/report.types';
 import { AiAnalystService, type PortfolioSummaryData } from './ai_analyst.service';
 
 export class SnapshotService {
@@ -105,7 +109,9 @@ export class SnapshotService {
       })),
       worstDealers,
       topDealers: model.dealers.slice(0, 20),
+      allDealers: model.dealers,
       agents: model.agents.slice(0, 50),
+      allAgents: model.agents,
       products: model.products,
       lossCodeDashboard: {
         currentMonth: model.lossCodeDashboard.currentMonth,
@@ -131,5 +137,376 @@ export class SnapshotService {
     console.log(
       `✅ Executive snapshot successfully upserted to MongoDB [${this.collectionName}] for asOf: ${asOfDateStr}`,
     );
+
+    // Save detailed drilldown debug snapshots for all dealers and agents
+    await this.saveDebugSnapshots(model, asOfDateStr);
+  }
+
+  /**
+   * Persists pre-aggregated drilldown documents for every dealer and agent into
+   * dedicated, indexed collections (dealer_debug_snapshots and agent_debug_snapshots).
+   * This gives the UI sub-second (< 50ms) debug inspections for any dealer or agent.
+   */
+  private async saveDebugSnapshots(model: ReportModel, asOfDateStr: string): Promise<void> {
+    const dealerColl = this.db.collection('dealer_debug_snapshots');
+    const agentColl = this.db.collection('agent_debug_snapshots');
+
+    await dealerColl.createIndex({ dealerName: 1, asOfDateStr: 1 }, { unique: true });
+    await agentColl.createIndex({ agentName: 1, asOfDateStr: 1 }, { unique: true });
+
+    // Maps for fast O(1) dimension lookups across time horizons (mapping both code and displayName)
+    const itdDealerMap = new Map<string, (typeof model.itdDealers)[0]>();
+    for (const d of model.itdDealers) {
+      itdDealerMap.set(d.name, d);
+      if (d.displayName) itdDealerMap.set(d.displayName, d);
+    }
+    const rollingDealerMap = new Map<string, (typeof model.dealers)[0]>();
+    for (const d of model.dealers) {
+      rollingDealerMap.set(d.name, d);
+      if (d.displayName) rollingDealerMap.set(d.displayName, d);
+    }
+    const ytdDealerMap = new Map<string, (typeof model.ytdDealers)[0]>();
+    for (const d of model.ytdDealers) {
+      ytdDealerMap.set(d.name, d);
+      if (d.displayName) ytdDealerMap.set(d.displayName, d);
+    }
+    const monthlyDealerMap = new Map<string, (typeof model.monthlyDealers)[0]>();
+    for (const d of model.monthlyDealers) {
+      monthlyDealerMap.set(d.name, d);
+      if (d.displayName) monthlyDealerMap.set(d.displayName, d);
+    }
+
+    // Group transactions by dealer and agent in O(N) single pass
+    const txByDealer = new Map<string, NormalizedContractTransaction[]>();
+    const txByAgent = new Map<string, NormalizedContractTransaction[]>();
+    for (const t of model.contractTransactions) {
+      const dName = t.dealerName || t.dealerNumber;
+      if (!txByDealer.has(dName)) {
+        txByDealer.set(dName, []);
+      }
+      txByDealer.get(dName)!.push(t);
+
+      const aName = t.agentName || t.agent;
+      if (aName) {
+        if (!txByAgent.has(aName)) {
+          txByAgent.set(aName, []);
+        }
+        txByAgent.get(aName)!.push(t);
+      }
+    }
+
+    // Group claims by dealer and agent in O(N) single pass
+    const claimsByDealer = new Map<string, NormalizedClaim[]>();
+    const claimsByAgent = new Map<string, NormalizedClaim[]>();
+    for (const c of model.claims) {
+      const dName = c.dealerName || c.dealer;
+      if (!claimsByDealer.has(dName)) {
+        claimsByDealer.set(dName, []);
+      }
+      claimsByDealer.get(dName)!.push(c);
+
+      const aName = c.agentName || c.agent;
+      if (aName) {
+        if (!claimsByAgent.has(aName)) {
+          claimsByAgent.set(aName, []);
+        }
+        claimsByAgent.get(aName)!.push(c);
+      }
+    }
+
+    // Set of all unique dealer names across all periods
+    const allDealerNames = new Set([
+      ...itdDealerMap.keys(),
+      ...rollingDealerMap.keys(),
+      ...ytdDealerMap.keys(),
+      ...monthlyDealerMap.keys(),
+    ]);
+
+    const dealerOps = [];
+    for (const dealerName of allDealerNames) {
+      const itd = itdDealerMap.get(dealerName) ?? null;
+      const rolling = rollingDealerMap.get(dealerName) ?? null;
+      const ytd = ytdDealerMap.get(dealerName) ?? null;
+      const month = monthlyDealerMap.get(dealerName) ?? null;
+      const displayName = itd?.displayName || rolling?.displayName || dealerName;
+      const relatedAgents = itd?.relatedAgents || rolling?.relatedAgents || [];
+
+      // Calculate top loss codes for this dealer
+      const dClaims = claimsByDealer.get(dealerName) || [];
+      const lossMap = new Map<
+        string,
+        { code: string; description: string; claimCount: number; totalPaid: number }
+      >();
+      for (const cl of dClaims) {
+        const code = cl.lossCode || 'UNMAPPED';
+        const desc = cl.lossCodeDescription || 'Description unavailable';
+        const entry = lossMap.get(code) || {
+          code,
+          description: desc,
+          claimCount: 0,
+          totalPaid: 0,
+        };
+        entry.claimCount += 1;
+        entry.totalPaid += cl.paidAmount;
+        lossMap.set(code, entry);
+      }
+      const topLossCodes = Array.from(lossMap.values())
+        .sort((a, b) => b.totalPaid - a.totalPaid)
+        .slice(0, 15);
+
+      const productBuckets = this.computeProductBuckets(
+        txByDealer.get(dealerName) || [],
+        claimsByDealer.get(dealerName) || [],
+      );
+
+      const doc = {
+        dealerName,
+        displayName,
+        asOfDateStr,
+        generatedAt: new Date(),
+        relatedAgents,
+        currentMonth: month,
+        yearToDate: ytd,
+        rolling12: rolling,
+        inceptionToDate: itd,
+        topLossCodes,
+        productBuckets,
+        componentBuckets: this.computeComponentBuckets(txByDealer.get(dealerName) || []),
+      };
+
+      dealerOps.push({
+        updateOne: {
+          filter: { dealerName, asOfDateStr },
+          update: { $set: doc },
+          upsert: true,
+        },
+      });
+    }
+
+    if (dealerOps.length > 0) {
+      await dealerColl.bulkWrite(dealerOps, { ordered: false });
+      console.log(
+        `✅ Upserted ${dealerOps.length} dealer debug snapshots to [dealer_debug_snapshots]`,
+      );
+    }
+
+    // Agents
+    const itdAgentMap = new Map(model.itdAgents.map((a) => [a.name, a]));
+    const rollingAgentMap = new Map(model.agents.map((a) => [a.name, a]));
+    const ytdAgentMap = new Map(model.ytdAgents.map((a) => [a.name, a]));
+    const monthlyAgentMap = new Map(model.monthlyAgents.map((a) => [a.name, a]));
+
+    const allAgentNames = new Set([
+      ...itdAgentMap.keys(),
+      ...rollingAgentMap.keys(),
+      ...ytdAgentMap.keys(),
+      ...monthlyAgentMap.keys(),
+    ]);
+
+    const agentOps = [];
+    for (const agentName of allAgentNames) {
+      const itd = itdAgentMap.get(agentName) ?? null;
+      const rolling = rollingAgentMap.get(agentName) ?? null;
+      const ytd = ytdAgentMap.get(agentName) ?? null;
+      const month = monthlyAgentMap.get(agentName) ?? null;
+      const displayName = itd?.displayName || rolling?.displayName || agentName;
+      const relatedDealers = itd?.relatedDealers || rolling?.relatedDealers || [];
+
+      // Sub-dealers breakdown under this agent
+      const dealersBreakdown = relatedDealers
+        .map((dName) => {
+          const dItd = itdDealerMap.get(dName);
+          return {
+            dealerName: dName,
+            displayName: dItd?.displayName || dName,
+            contractsWritten: dItd?.contractsWritten ?? 0,
+            activeContracts: dItd?.activeContracts ?? 0,
+            claimsPaid: dItd?.claimsPaid ?? 0,
+            earnedReserve: dItd?.earnedReserve ?? 0,
+            earnedLossRatio: dItd?.earnedLossRatio ?? null,
+          };
+        })
+        .sort((a, b) => (b.claimsPaid || 0) - (a.claimsPaid || 0));
+
+      const productBuckets = this.computeProductBuckets(
+        txByAgent.get(agentName) || [],
+        claimsByAgent.get(agentName) || [],
+      );
+
+      const doc = {
+        agentName,
+        displayName,
+        asOfDateStr,
+        generatedAt: new Date(),
+        relatedDealers,
+        currentMonth: month,
+        yearToDate: ytd,
+        rolling12: rolling,
+        inceptionToDate: itd,
+        dealersBreakdown,
+        productBuckets,
+        componentBuckets: this.computeComponentBuckets(txByAgent.get(agentName) || []),
+      };
+
+      agentOps.push({
+        updateOne: {
+          filter: { agentName, asOfDateStr },
+          update: { $set: doc },
+          upsert: true,
+        },
+      });
+    }
+
+    if (agentOps.length > 0) {
+      await agentColl.bulkWrite(agentOps, { ordered: false });
+      console.log(
+        `✅ Upserted ${agentOps.length} agent debug snapshots to [agent_debug_snapshots]`,
+      );
+    }
+  }
+
+  /**
+   * Computes product bucket aggregations (written, cancelled, net, earned, claims, loss ratio, deficit/surplus)
+   * for any targeted dealership or agency.
+   */
+  private computeProductBuckets(
+    transactions: readonly NormalizedContractTransaction[],
+    claims: readonly NormalizedClaim[],
+  ): Array<{
+    name: string;
+    writtenContracts: number;
+    cancelledContracts: number;
+    netContracts: number;
+    writtenReserve: number;
+    cancelledReserve: number;
+    netReserve: number;
+    earnedReserve: number;
+    percentEarned: number;
+    claimsPaid: number;
+    lossRatio: number;
+    uwProfit: number;
+    status: 'CRITICAL LOSS' | 'LOSS DEFICIT' | 'PROFIT SURPLUS';
+  }> {
+    const contractLookup = new Map<string, NormalizedContractTransaction>();
+    for (const t of transactions) {
+      if (t.contractNumber && t.transactionType !== 'Cancellation') {
+        contractLookup.set(t.contractNumber, t);
+      }
+    }
+
+    const claimProduct = (c: NormalizedClaim): string => {
+      const orig = contractLookup.get(c.contractNumber);
+      return orig?.product || c.product || 'Standard';
+    };
+
+    const prodNames = new Set<string>();
+    for (const t of transactions) prodNames.add(t.product || 'Standard');
+    for (const c of claims) prodNames.add(claimProduct(c));
+
+    const sortedProducts = Array.from(prodNames).sort();
+    return sortedProducts
+      .map((name) => {
+        const pTx = transactions.filter((t) => (t.product || 'Standard') === name);
+        const pClaims = claims.filter((c) => claimProduct(c) === name);
+
+        const writtenSet = new Set<string>();
+        const cancelSet = new Set<string>();
+        let writtenReserve = 0;
+        let cancelledReserve = 0;
+        let earnedReserve = 0;
+
+        for (const t of pTx) {
+          if (t.transactionType !== 'Cancellation') {
+            writtenSet.add(t.contractNumber);
+            writtenReserve += t.reserveAmount;
+            earnedReserve += t.earnedReserveAmount;
+          } else {
+            cancelSet.add(t.contractNumber);
+            cancelledReserve += Math.abs(t.reserveAmount);
+          }
+        }
+
+        const netReserve = writtenReserve - cancelledReserve;
+        const percentEarned = netReserve > 0 ? (earnedReserve / netReserve) * 100 : 0;
+        const claimsPaid = pClaims.reduce((sum, c) => sum + c.paidAmount, 0);
+        const lossRatio = earnedReserve > 0 ? (claimsPaid / earnedReserve) * 100 : 0;
+        const uwProfit = earnedReserve - claimsPaid;
+
+        let status: 'CRITICAL LOSS' | 'LOSS DEFICIT' | 'PROFIT SURPLUS' = 'PROFIT SURPLUS';
+        if (lossRatio > 100) {
+          status = 'CRITICAL LOSS';
+        } else if (uwProfit < 0) {
+          status = 'LOSS DEFICIT';
+        }
+
+        return {
+          name,
+          writtenContracts: writtenSet.size,
+          cancelledContracts: cancelSet.size,
+          netContracts: writtenSet.size - cancelSet.size,
+          writtenReserve,
+          cancelledReserve,
+          netReserve,
+          earnedReserve,
+          percentEarned: Number(percentEarned.toFixed(2)),
+          claimsPaid,
+          lossRatio: Number(lossRatio.toFixed(1)),
+          uwProfit,
+          status,
+        };
+      })
+      .sort((a, b) => a.uwProfit - b.uwProfit);
+  }
+
+  /**
+   * Computes component-level breakdown for RESERVE and ADMIN buckets
+   * (e.g. BASERESERVE, BASERESERVEFTP, BASEADMIN, BASEADMINMS, etc.)
+   */
+  private computeComponentBuckets(transactions: readonly NormalizedContractTransaction[]): {
+    reserve: Array<{ component: string; written: number; cancelled: number; net: number }>;
+    admin: Array<{ component: string; written: number; cancelled: number; net: number }>;
+  } {
+    const sums: Record<string, { written: number; cancelled: number; net: number }> = {};
+    for (const t of transactions) {
+      if (!t.components) continue;
+      const isCancel = t.transactionType === 'Cancellation';
+      for (const cat of ['RESERVE', 'ADMIN']) {
+        const catData = t.components[cat];
+        if (!catData) continue;
+        for (const [comp, amt] of Object.entries(catData)) {
+          const key = `${cat}.${comp}`;
+          if (!sums[key]) sums[key] = { written: 0, cancelled: 0, net: 0 };
+          if (isCancel) {
+            sums[key].cancelled -= Math.abs(amt);
+            sums[key].net -= Math.abs(amt);
+          } else {
+            sums[key].written += amt;
+            sums[key].net += amt;
+          }
+        }
+      }
+    }
+
+    const reserve = Object.keys(sums)
+      .filter((k) => k.startsWith('RESERVE.'))
+      .sort()
+      .map((k) => ({
+        component: k.replace('RESERVE.', ''),
+        written: sums[k]!.written,
+        cancelled: sums[k]!.cancelled,
+        net: sums[k]!.net,
+      }));
+
+    const admin = Object.keys(sums)
+      .filter((k) => k.startsWith('ADMIN.'))
+      .sort()
+      .map((k) => ({
+        component: k.replace('ADMIN.', ''),
+        written: sums[k]!.written,
+        cancelled: sums[k]!.cancelled,
+        net: sums[k]!.net,
+      }));
+
+    return { reserve, admin };
   }
 }
