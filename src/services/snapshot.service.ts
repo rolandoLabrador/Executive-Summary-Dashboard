@@ -1,5 +1,9 @@
 import { type Db } from 'mongodb';
-import { type NormalizedClaim, type ReportModel } from '../models/report.types';
+import {
+  type NormalizedClaim,
+  type NormalizedContractTransaction,
+  type ReportModel,
+} from '../models/report.types';
 import { AiAnalystService, type PortfolioSummaryData } from './ai_analyst.service';
 
 export class SnapshotService {
@@ -156,14 +160,42 @@ export class SnapshotService {
     const ytdDealerMap = new Map(model.ytdDealers.map((d) => [d.name, d]));
     const monthlyDealerMap = new Map(model.monthlyDealers.map((d) => [d.name, d]));
 
-    // Group claims by dealer for instant loss-code drilldowns
+    // Group transactions by dealer and agent in O(N) single pass
+    const txByDealer = new Map<string, NormalizedContractTransaction[]>();
+    const txByAgent = new Map<string, NormalizedContractTransaction[]>();
+    for (const t of model.contractTransactions) {
+      const dName = t.dealerName || t.dealerNumber;
+      if (!txByDealer.has(dName)) {
+        txByDealer.set(dName, []);
+      }
+      txByDealer.get(dName)!.push(t);
+
+      const aName = t.agentName || t.agent;
+      if (aName) {
+        if (!txByAgent.has(aName)) {
+          txByAgent.set(aName, []);
+        }
+        txByAgent.get(aName)!.push(t);
+      }
+    }
+
+    // Group claims by dealer and agent in O(N) single pass
     const claimsByDealer = new Map<string, NormalizedClaim[]>();
+    const claimsByAgent = new Map<string, NormalizedClaim[]>();
     for (const c of model.claims) {
       const dName = c.dealerName || c.dealer;
       if (!claimsByDealer.has(dName)) {
         claimsByDealer.set(dName, []);
       }
       claimsByDealer.get(dName)!.push(c);
+
+      const aName = c.agentName || c.agent;
+      if (aName) {
+        if (!claimsByAgent.has(aName)) {
+          claimsByAgent.set(aName, []);
+        }
+        claimsByAgent.get(aName)!.push(c);
+      }
     }
 
     // Set of all unique dealer names across all periods
@@ -206,6 +238,11 @@ export class SnapshotService {
         .sort((a, b) => b.totalPaid - a.totalPaid)
         .slice(0, 15);
 
+      const productBuckets = this.computeProductBuckets(
+        txByDealer.get(dealerName) || [],
+        claimsByDealer.get(dealerName) || [],
+      );
+
       const doc = {
         dealerName,
         displayName,
@@ -217,6 +254,7 @@ export class SnapshotService {
         rolling12: rolling,
         inceptionToDate: itd,
         topLossCodes,
+        productBuckets,
       };
 
       dealerOps.push({
@@ -273,6 +311,11 @@ export class SnapshotService {
         })
         .sort((a, b) => (b.claimsPaid || 0) - (a.claimsPaid || 0));
 
+      const productBuckets = this.computeProductBuckets(
+        txByAgent.get(agentName) || [],
+        claimsByAgent.get(agentName) || [],
+      );
+
       const doc = {
         agentName,
         displayName,
@@ -284,6 +327,7 @@ export class SnapshotService {
         rolling12: rolling,
         inceptionToDate: itd,
         dealersBreakdown,
+        productBuckets,
       };
 
       agentOps.push({
@@ -301,5 +345,86 @@ export class SnapshotService {
         `✅ Upserted ${agentOps.length} agent debug snapshots to [agent_debug_snapshots]`,
       );
     }
+  }
+
+  /**
+   * Computes product bucket aggregations (written, cancelled, net, earned, claims, loss ratio, deficit/surplus)
+   * for any targeted dealership or agency.
+   */
+  private computeProductBuckets(
+    transactions: readonly NormalizedContractTransaction[],
+    claims: readonly NormalizedClaim[],
+  ): Array<{
+    name: string;
+    writtenContracts: number;
+    cancelledContracts: number;
+    netContracts: number;
+    writtenReserve: number;
+    cancelledReserve: number;
+    netReserve: number;
+    earnedReserve: number;
+    percentEarned: number;
+    claimsPaid: number;
+    lossRatio: number;
+    uwProfit: number;
+    status: 'CRITICAL LOSS' | 'LOSS DEFICIT' | 'PROFIT SURPLUS';
+  }> {
+    const prodNames = new Set<string>();
+    for (const t of transactions) prodNames.add(t.product || 'Standard');
+    for (const c of claims) prodNames.add(c.product || 'Standard');
+
+    const sortedProducts = Array.from(prodNames).sort();
+    return sortedProducts
+      .map((name) => {
+        const pTx = transactions.filter((t) => (t.product || 'Standard') === name);
+        const pClaims = claims.filter((c) => (c.product || 'Standard') === name);
+
+        const writtenSet = new Set<string>();
+        const cancelSet = new Set<string>();
+        let writtenReserve = 0;
+        let cancelledReserve = 0;
+        let earnedReserve = 0;
+
+        for (const t of pTx) {
+          if (t.transactionType !== 'Cancellation') {
+            writtenSet.add(t.contractNumber);
+            writtenReserve += t.reserveAmount;
+            earnedReserve += t.earnedReserveAmount;
+          } else {
+            cancelSet.add(t.contractNumber);
+            cancelledReserve += Math.abs(t.reserveAmount);
+          }
+        }
+
+        const netReserve = writtenReserve - cancelledReserve;
+        const percentEarned = netReserve > 0 ? (earnedReserve / netReserve) * 100 : 0;
+        const claimsPaid = pClaims.reduce((sum, c) => sum + c.paidAmount, 0);
+        const lossRatio = earnedReserve > 0 ? (claimsPaid / earnedReserve) * 100 : 0;
+        const uwProfit = earnedReserve - claimsPaid;
+
+        let status: 'CRITICAL LOSS' | 'LOSS DEFICIT' | 'PROFIT SURPLUS' = 'PROFIT SURPLUS';
+        if (lossRatio > 100) {
+          status = 'CRITICAL LOSS';
+        } else if (uwProfit < 0) {
+          status = 'LOSS DEFICIT';
+        }
+
+        return {
+          name,
+          writtenContracts: writtenSet.size,
+          cancelledContracts: cancelSet.size,
+          netContracts: writtenSet.size - cancelSet.size,
+          writtenReserve,
+          cancelledReserve,
+          netReserve,
+          earnedReserve,
+          percentEarned: Number(percentEarned.toFixed(2)),
+          claimsPaid,
+          lossRatio: Number(lossRatio.toFixed(1)),
+          uwProfit,
+          status,
+        };
+      })
+      .sort((a, b) => a.uwProfit - b.uwProfit);
   }
 }

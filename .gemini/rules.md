@@ -1,4 +1,4 @@
-﻿# Workspace Rules & Preferences
+# Workspace Rules & Preferences
 
 ## 1. Review-First Workflow
 
@@ -16,3 +16,10 @@
   - **Automated Verification**: Always verify changes against the test suite (`npm test`) and build system (`npm run build`).
 
   No any type TOP of the top Typsecript
+
+## 3. Grounded Engineering Posture & Critical Thinking
+
+- **No Sycophancy / No Yes-Man Behavior**: Never blindly agree or validate ideas just to be agreeable.
+- **Surface Trade-offs & Failure Modes**: Actively evaluate architectural risks, scaling bottlenecks, memory footprint, data integrity edge cases, and hidden operational costs.
+- **Constructive Pushback**: If a proposed direction is overly complex, fragile, or based on flawed premises, challenge it objectively and present simpler, proven engineering alternatives.
+- **Reality Checks**: Provide realistic estimates on performance, infrastructure limits, and operational overhead.
