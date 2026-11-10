@@ -176,42 +176,54 @@ export class SnapshotService {
       if (d.displayName) monthlyDealerMap.set(d.displayName, d);
     }
 
-    // Group transactions by dealer and agent in O(N) single pass
+    const pushToMap = <T>(map: Map<string, T[]>, key: string | undefined | null, item: T) => {
+      if (!key) return;
+      const normalized = key.trim().toUpperCase();
+      if (!map.has(normalized)) {
+        map.set(normalized, []);
+      }
+      map.get(normalized)!.push(item);
+    };
+
+    const getFromMap = <T>(map: Map<string, T[]>, ...keys: (string | undefined | null)[]): T[] => {
+      const seen = new Set<T>();
+      const result: T[] = [];
+      for (const k of keys) {
+        if (!k) continue;
+        const normalized = k.trim().toUpperCase();
+        const items = map.get(normalized);
+        if (items) {
+          for (const item of items) {
+            if (!seen.has(item)) {
+              seen.add(item);
+              result.push(item);
+            }
+          }
+        }
+      }
+      return result;
+    };
+
+    // Group transactions by dealer and agent in O(N) single pass (indexed by both code and name, case-insensitive)
     const txByDealer = new Map<string, NormalizedContractTransaction[]>();
     const txByAgent = new Map<string, NormalizedContractTransaction[]>();
     for (const t of model.contractTransactions) {
-      const dName = t.dealerName || t.dealerNumber;
-      if (!txByDealer.has(dName)) {
-        txByDealer.set(dName, []);
-      }
-      txByDealer.get(dName)!.push(t);
+      pushToMap(txByDealer, t.dealerNumber, t);
+      pushToMap(txByDealer, t.dealerName, t);
 
-      const aName = t.agentName || t.agent;
-      if (aName) {
-        if (!txByAgent.has(aName)) {
-          txByAgent.set(aName, []);
-        }
-        txByAgent.get(aName)!.push(t);
-      }
+      pushToMap(txByAgent, t.agent, t);
+      pushToMap(txByAgent, t.agentName, t);
     }
 
-    // Group claims by dealer and agent in O(N) single pass
+    // Group claims by dealer and agent in O(N) single pass (indexed by both code and name, case-insensitive)
     const claimsByDealer = new Map<string, NormalizedClaim[]>();
     const claimsByAgent = new Map<string, NormalizedClaim[]>();
     for (const c of model.claims) {
-      const dName = c.dealerName || c.dealer;
-      if (!claimsByDealer.has(dName)) {
-        claimsByDealer.set(dName, []);
-      }
-      claimsByDealer.get(dName)!.push(c);
+      pushToMap(claimsByDealer, c.dealer, c);
+      pushToMap(claimsByDealer, c.dealerName, c);
 
-      const aName = c.agentName || c.agent;
-      if (aName) {
-        if (!claimsByAgent.has(aName)) {
-          claimsByAgent.set(aName, []);
-        }
-        claimsByAgent.get(aName)!.push(c);
-      }
+      pushToMap(claimsByAgent, c.agent, c);
+      pushToMap(claimsByAgent, c.agentName, c);
     }
 
     // Set of all unique dealer names across all periods
@@ -231,13 +243,15 @@ export class SnapshotService {
       const displayName = itd?.displayName || rolling?.displayName || dealerName;
       const relatedAgents = itd?.relatedAgents || rolling?.relatedAgents || [];
 
+      const dealerTx = getFromMap(txByDealer, dealerName, displayName, itd?.name, itd?.displayName);
+      const dealerClaims = getFromMap(claimsByDealer, dealerName, displayName, itd?.name, itd?.displayName);
+
       // Calculate top loss codes for this dealer
-      const dClaims = claimsByDealer.get(dealerName) || [];
       const lossMap = new Map<
         string,
         { code: string; description: string; claimCount: number; totalPaid: number }
       >();
-      for (const cl of dClaims) {
+      for (const cl of dealerClaims) {
         const code = cl.lossCode || 'UNMAPPED';
         const desc = cl.lossCodeDescription || 'Description unavailable';
         const entry = lossMap.get(code) || {
@@ -254,10 +268,7 @@ export class SnapshotService {
         .sort((a, b) => b.totalPaid - a.totalPaid)
         .slice(0, 15);
 
-      const productBuckets = this.computeProductBuckets(
-        txByDealer.get(dealerName) || [],
-        claimsByDealer.get(dealerName) || [],
-      );
+      const productBuckets = this.computeProductBuckets(dealerTx, dealerClaims);
 
       const doc = {
         dealerName,
@@ -271,7 +282,7 @@ export class SnapshotService {
         inceptionToDate: itd,
         topLossCodes,
         productBuckets,
-        componentBuckets: this.computeComponentBuckets(txByDealer.get(dealerName) || []),
+        componentBuckets: this.computeComponentBuckets(dealerTx),
       };
 
       dealerOps.push({
@@ -328,10 +339,10 @@ export class SnapshotService {
         })
         .sort((a, b) => (b.claimsPaid || 0) - (a.claimsPaid || 0));
 
-      const productBuckets = this.computeProductBuckets(
-        txByAgent.get(agentName) || [],
-        claimsByAgent.get(agentName) || [],
-      );
+      const agentTx = getFromMap(txByAgent, agentName, displayName, itd?.name, itd?.displayName);
+      const agentClaims = getFromMap(claimsByAgent, agentName, displayName, itd?.name, itd?.displayName);
+
+      const productBuckets = this.computeProductBuckets(agentTx, agentClaims);
 
       const doc = {
         agentName,
@@ -345,7 +356,7 @@ export class SnapshotService {
         inceptionToDate: itd,
         dealersBreakdown,
         productBuckets,
-        componentBuckets: this.computeComponentBuckets(txByAgent.get(agentName) || []),
+        componentBuckets: this.computeComponentBuckets(agentTx),
       };
 
       agentOps.push({
@@ -390,12 +401,12 @@ export class SnapshotService {
     const contractLookup = new Map<string, NormalizedContractTransaction>();
     for (const t of transactions) {
       if (t.contractNumber && t.transactionType !== 'Cancellation') {
-        contractLookup.set(t.contractNumber, t);
+        contractLookup.set(t.contractNumber.trim().toUpperCase(), t);
       }
     }
 
     const claimProduct = (c: NormalizedClaim): string => {
-      const orig = contractLookup.get(c.contractNumber);
+      const orig = c.contractNumber ? contractLookup.get(c.contractNumber.trim().toUpperCase()) : undefined;
       return orig?.product || c.product || 'Standard';
     };
 
