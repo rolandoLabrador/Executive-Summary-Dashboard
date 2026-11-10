@@ -369,15 +369,27 @@ export class SnapshotService {
     uwProfit: number;
     status: 'CRITICAL LOSS' | 'LOSS DEFICIT' | 'PROFIT SURPLUS';
   }> {
+    const contractLookup = new Map<string, NormalizedContractTransaction>();
+    for (const t of transactions) {
+      if (t.contractNumber && t.transactionType !== 'Cancellation') {
+        contractLookup.set(t.contractNumber, t);
+      }
+    }
+
+    const claimProduct = (c: NormalizedClaim): string => {
+      const orig = contractLookup.get(c.contractNumber);
+      return orig?.product || c.product || 'Standard';
+    };
+
     const prodNames = new Set<string>();
     for (const t of transactions) prodNames.add(t.product || 'Standard');
-    for (const c of claims) prodNames.add(c.product || 'Standard');
+    for (const c of claims) prodNames.add(claimProduct(c));
 
     const sortedProducts = Array.from(prodNames).sort();
     return sortedProducts
       .map((name) => {
         const pTx = transactions.filter((t) => (t.product || 'Standard') === name);
-        const pClaims = claims.filter((c) => (c.product || 'Standard') === name);
+        const pClaims = claims.filter((c) => claimProduct(c) === name);
 
         const writtenSet = new Set<string>();
         const cancelSet = new Set<string>();
