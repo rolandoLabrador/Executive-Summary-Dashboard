@@ -111,7 +111,7 @@ export const KPI_DEFINITIONS: MetricDefinition[] = [
   { label: 'Contracts Written', key: 'contractsWritten', format: INTEGER },
   { label: 'Activated Contracts', key: 'activeContracts', format: INTEGER },
   { label: 'Enforced Contracts', key: 'enforcedContracts', format: INTEGER },
-  { label: 'cancellation', key: 'contractsCancelled', format: INTEGER },
+  { label: 'Cancellations', key: 'contractsCancelled', format: INTEGER },
   { label: 'Net Income', key: 'grossIncome', format: MONEY },
   { label: 'Net Admin', key: 'netAdmin', format: MONEY },
   { label: 'Average admin', key: 'adminPerContract', format: MONEY },

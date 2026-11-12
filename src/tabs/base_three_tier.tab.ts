@@ -125,7 +125,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       'Activated Contracts',
       'Enforced Contracts',
       'Net Income',
-      'cancellation',
+      'Cancellations',
       'Net Admin',
       'Average admin',
       'Net Reserve',
