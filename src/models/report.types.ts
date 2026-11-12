@@ -84,6 +84,7 @@ export interface NormalizedClaim {
 export interface MetricValues {
   contractsWritten: number;
   activeContracts: number;
+  enforcedContracts: number;
   contractsCancelled: number;
   netContracts: number;
   adminWritten: number;

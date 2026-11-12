@@ -431,22 +431,28 @@ export class DuckDBService {
       WHERE activityDate >= '${startIso}' AND activityDate <= '${endIso}';
     `);
 
-    const [activeRow] = await this.query<{ activeCount: bigint }>(`
+    const [contractCounts] = await this.query<{ activeCount: bigint; enforcedCount: bigint }>(`
       WITH latest_contract AS (
         SELECT * EXCLUDE (rn) FROM (
-          SELECT contractNumber, contractStatus,
+          SELECT contractNumber, contractStatus, transactionType, activityDate,
             ROW_NUMBER() OVER (PARTITION BY contractNumber ORDER BY snapshotDate DESC) as rn
           FROM raw_contracts
           WHERE contractNumber IS NOT NULL AND contractNumber != ''
         ) WHERE rn = 1
       )
       SELECT 
-        COUNT(DISTINCT r.contractNumber) AS activeCount
+        COUNT(DISTINCT CASE 
+          WHEN r.transactionType != 'Cancellation' 
+           AND r.activityDate >= '${startIso}' AND r.activityDate <= '${endIso}'
+           AND UPPER(COALESCE(l.contractStatus, r.contractStatus, '')) != 'V' 
+          THEN r.contractNumber END) AS activeCount,
+        COUNT(DISTINCT CASE 
+          WHEN l.contractStatus = 'A' 
+           AND l.transactionType != 'Cancellation'
+           AND l.activityDate >= '${startIso}' AND l.activityDate <= '${endIso}'
+          THEN l.contractNumber END) AS enforcedCount
       FROM raw_contracts r
-      LEFT JOIN latest_contract l ON r.contractNumber = l.contractNumber
-      WHERE r.transactionType != 'Cancellation'
-        AND r.activityDate >= '${startIso}' AND r.activityDate <= '${endIso}'
-        AND UPPER(COALESCE(l.contractStatus, r.contractStatus, '')) != 'V';
+      LEFT JOIN latest_contract l ON r.contractNumber = l.contractNumber;
     `);
 
     const [claimSums] = await this.query<{ totalPaid: number; uniqueClaims: bigint }>(`
@@ -460,7 +466,8 @@ export class DuckDBService {
     const contractsWritten = Number(contractSums?.writtenCount ?? BigInt(0));
     const contractsCancelled = Number(contractSums?.cancelCount ?? BigInt(0));
     const netContracts = contractsWritten - contractsCancelled;
-    const activeContracts = Number(activeRow?.activeCount ?? BigInt(0));
+    const activeContracts = Number(contractCounts?.activeCount ?? BigInt(0));
+    const enforcedContracts = Number(contractCounts?.enforcedCount ?? BigInt(0));
     const adminWritten = contractSums?.adminWritten ?? 0;
     const adminCancelled = contractSums?.adminCancelled ?? 0;
     const netAdmin = adminWritten - adminCancelled;
@@ -485,6 +492,7 @@ export class DuckDBService {
     return {
       contractsWritten,
       activeContracts,
+      enforcedContracts,
       contractsCancelled,
       netContracts,
       adminWritten,
@@ -548,6 +556,7 @@ export class DuckDBService {
       displayName: r.dealerName,
       contractsWritten: 0,
       activeContracts: 0,
+      enforcedContracts: 0,
       contractsCancelled: 0,
       netContracts: 0,
       adminWritten: r.writtenAdmin,

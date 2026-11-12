@@ -28,6 +28,12 @@ export interface MetricDefinition {
 }
 
 export const REPORT_DEFINITIONS: Record<string, string> = {
+  'Enforced Contracts':
+    'All contracts with the status of active within that time period. That will exclude cancellation and voided and expired.',
+  'Activated Contracts':
+    'Distinct contracts whose metadata.ActivationDate falls within the reporting period include all. Take out voided.',
+  'Active Contracts':
+    'Distinct contracts whose metadata.ActivationDate falls within the reporting period include all. Take out voided.',
   'Net Income':
     'Sum of Net Admin, Net Reserve, and all other non-excluded components (tax, ceding, etc.) from transactions that occurred specifically within the selected reporting period (calculated as Income Written minus Income Cancelled).',
   'Underwriting Profit':
@@ -37,10 +43,6 @@ export const REPORT_DEFINITIONS: Record<string, string> = {
     'Calculated as Earned Reserve divided by Net Written Reserve (for the selected reporting period). Measures the cumulative earned portion of the written reserve.',
   'Earned Reserve':
     'Calculated using written/cancelled amounts from transactions within the reporting period. For contracts ultimately active as of the run date, calculated dynamically using the earning schedule curve. For contracts ultimately cancelled as of the run date, calculated as MAX(0, Written Reserve - Cancelled Reserve).',
-  'Activated Contracts':
-    'Distinct contracts whose metadata.ActivationDate falls within the reporting period include all. Take out voided.',
-  'Active Contracts':
-    'Distinct contracts whose metadata.ActivationDate falls within the reporting period include all. Take out voided.',
   'Expired Contracts':
     'Contracts with ContractStatus E are treated mathematically as New Business (written contracts) that have naturally reached the end of their term. They are included in Contracts Written and Earned Reserve calculations for their respective periods, but are never counted as Active.',
   Cancellations:
@@ -108,6 +110,7 @@ export const REPORT_DEFINITIONS: Record<string, string> = {
 export const KPI_DEFINITIONS: MetricDefinition[] = [
   { label: 'Contracts Written', key: 'contractsWritten', format: INTEGER },
   { label: 'Activated Contracts', key: 'activeContracts', format: INTEGER },
+  { label: 'Enforced Contracts', key: 'enforcedContracts', format: INTEGER },
   { label: 'cancellation', key: 'contractsCancelled', format: INTEGER },
   { label: 'Net Income', key: 'grossIncome', format: MONEY },
   { label: 'Net Admin', key: 'netAdmin', format: MONEY },

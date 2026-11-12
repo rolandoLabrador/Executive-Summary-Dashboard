@@ -22,6 +22,7 @@ const UNAVAILABLE_LOSS_DESCRIPTION = 'Description unavailable';
 const EMPTY_METRICS: MetricValues = {
   contractsWritten: 0,
   activeContracts: 0,
+  enforcedContracts: 0,
   contractsCancelled: 0,
   netContracts: 0,
   adminWritten: 0,
@@ -363,6 +364,14 @@ function aggregate(
     }
   }
   result.activeContracts = activatedSet.size;
+
+  // Enforced Contracts: Currently active contracts in period (excluding cancellations, voided, and expired)
+  result.enforcedContracts = [...latestState.values()].filter(
+    (transaction) =>
+      transaction.contractStatus === 'A' &&
+      transaction.transactionType !== 'Cancellation' &&
+      inRange(transaction.activityDate, start, end),
+  ).length;
 
   const contractStates = new Map<
     string,

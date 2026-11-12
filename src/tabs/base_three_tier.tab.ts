@@ -34,7 +34,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
   ): void {
     const ws = workbook.addWorksheet(this.name);
     configureWorksheet(ws);
-    const maxCols = this.isDealer ? 19 : 17;
+    const maxCols = this.isDealer ? 20 : 18;
     title(
       ws,
       this.heading,
@@ -85,6 +85,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       ...(this.isDealer ? [{ width: 34 }, { width: 36 }] : []),
       { width: 12 }, // Written
       { width: 14 }, // Activated Contracts
+      { width: 14 }, // Enforced Contracts
       { width: 16 }, // Net Income
       { width: 14 }, // Cancellations
       { width: 16 }, // Net Admin
@@ -122,6 +123,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       ...(this.isDealer ? ['Dealer Name', 'Agents'] : []),
       'Written',
       'Activated Contracts',
+      'Enforced Contracts',
       'Net Income',
       'cancellation',
       'Net Admin',
@@ -149,6 +151,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
           : []),
         item.contractsWritten,
         item.activeContracts,
+        item.enforcedContracts ?? item.activeContracts,
         item.grossIncome,
         item.contractsCancelled,
         item.netAdmin,
@@ -165,18 +168,18 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
         item.earnedLossRatio,
       ];
       const offset = this.isDealer ? 2 : 0;
-      [3, 4, 6].forEach((column) => {
+      [3, 4, 5, 7].forEach((column) => {
         row.getCell(column + offset).numFmt = INTEGER;
       });
-      [5, 7, 8, 9, 10, 11, 12].forEach((column) => {
+      [6, 8, 9, 10, 11, 12, 13].forEach((column) => {
         row.getCell(column + offset).numFmt = MONEY;
       });
-      [13, 14, 15, 16, 17].forEach((column) => {
+      [14, 15, 16, 17].forEach((column) => {
         row.getCell(column + offset).numFmt = PERCENT;
       });
 
       // RULE 1: Visual Flag for Average admin < 20
-      const adminCell = row.getCell(8 + offset);
+      const adminCell = row.getCell(9 + offset);
       if (
         item.adminPerContract !== null &&
         item.adminPerContract > 0 &&
@@ -187,7 +190,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       }
 
       // RULE 2: Colored Data Bars for Loss Ratio
-      const barCell = row.getCell(17 + offset);
+      const barCell = row.getCell(18 + offset);
       const colorHex = getLossRatioBarColorHex(item.earnedLossRatio);
       ws.addConditionalFormatting({
         ref: barCell.address,
@@ -198,7 +201,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
     if (selected.length > 0) {
       const firstDataRow = startRow + 2;
       const lastDataRow = startRow + 1 + selected.length;
-      const earnedRatioCol = this.isDealer ? 'P' : 'N';
+      const earnedRatioCol = this.isDealer ? 'Q' : 'O';
 
       const ratioRules: ExcelJS.ConditionalFormattingRule[] = [
         {
