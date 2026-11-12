@@ -28,8 +28,8 @@ export interface MetricDefinition {
 }
 
 export const REPORT_DEFINITIONS: Record<string, string> = {
-  'Gross Income':
-    'Sum of Net Admin, Net Reserve, and all other non-excluded components (tax, ceding, etc.) from transactions that occurred specifically within the selected reporting period.',
+  'Net Income':
+    'Sum of Net Admin, Net Reserve, and all other non-excluded components (tax, ceding, etc.) from transactions that occurred specifically within the selected reporting period (calculated as Income Written minus Income Cancelled).',
   'Underwriting Profit':
     'Calculated as Earned Reserve - Claims Paid (for the selected reporting period).',
   'Earned Loss Ratio': 'Claims Paid divided by Earned Reserve (for the selected reporting period).',
@@ -37,8 +37,10 @@ export const REPORT_DEFINITIONS: Record<string, string> = {
     'Calculated as Earned Reserve divided by Net Written Reserve (for the selected reporting period). Measures the cumulative earned portion of the written reserve.',
   'Earned Reserve':
     'Calculated using written/cancelled amounts from transactions within the reporting period. For contracts ultimately active as of the run date, calculated dynamically using the earning schedule curve. For contracts ultimately cancelled as of the run date, calculated as MAX(0, Written Reserve - Cancelled Reserve).',
+  'Activated Contracts':
+    'Distinct contracts whose metadata.ActivationDate falls within the reporting period include all. Take out voided.',
   'Active Contracts':
-    'Distinct contracts whose metadata.ActivationDate falls within the reporting period AND whose absolute latest historical snapshot has ContractStatus A (and is not a cancellation). Expired contracts (Status E) are explicitly excluded from this count.',
+    'Distinct contracts whose metadata.ActivationDate falls within the reporting period include all. Take out voided.',
   'Expired Contracts':
     'Contracts with ContractStatus E are treated mathematically as New Business (written contracts) that have naturally reached the end of their term. They are included in Contracts Written and Earned Reserve calculations for their respective periods, but are never counted as Active.',
   Cancellations:
@@ -46,7 +48,7 @@ export const REPORT_DEFINITIONS: Record<string, string> = {
   'Net Written Reserve':
     'Sum of written reserve components minus cancelled reserve components from transactions that occurred specifically within the selected reporting period. Calculated for all contracts regardless of their current active/cancelled status.',
   'Net Admin':
-    'Sum of written admin components minus cancelled admin components from transactions that occurred specifically within the selected reporting period. Importantly, this sum ONLY includes amounts for contracts that are currently Active (Status A and not cancelled) as of the report run date.',
+    'Sum of written admin components minus cancelled admin components from transactions that occurred specifically within the selected reporting period.',
   'Cancellation Timing':
     'Cancellation activity is recognized exclusively from metadata.CancelBillDate. Blank or invalid Cancel Bill Date records are excluded and reported as data-quality errors.',
   'Contract Timing':
@@ -87,11 +89,11 @@ export const REPORT_DEFINITIONS: Record<string, string> = {
   'Contracts Written':
     'Gross original contracts grouped by metadata.ActivationDate. When the new-business source is missing, a cancellation may supply an auditable written reference that retains canceled status and is never active.',
   'Contract Count Reconciliation':
-    'For the same ActivationDate cohort and as-of cutoff: Written Contracts = Active Contracts + contracts from that cohort whose latest state is canceled. Cancellations is grouped by CancelBillDate and is not generally the cancellation term in this equation.',
+    'For the same ActivationDate cohort and as-of cutoff: Written Contracts = Activated Contracts + cancelled/expired contracts. Cancellations is grouped by CancelBillDate and is not generally the cancellation term in this equation.',
   Privacy:
     'Customer identity, contact, address, and VIN fields are excluded at MongoDB extraction.',
   'Average admin':
-    'Calculated as Net Admin (from the reporting period) divided by Active Contracts (from the reporting period). If a cohort has 0 Active Contracts in the reporting period (e.g. only cancelled/expired contracts or claims), this value is left intentionally blank to avoid mathematical errors.',
+    'Calculated as Net Admin (from the reporting period) divided by Activated Contracts (from the reporting period). If a cohort has 0 Activated Contracts in the reporting period (e.g. only claims), this value is left intentionally blank to avoid mathematical errors.',
   'Rule: Low Admin Flag':
     'If the calculated Average Admin per contract is positive but less than $20.00, the cell is highlighted in bold red font and flagged with a tooltip/note.',
   'Rule: Loss Ratio Data Bars':
@@ -105,9 +107,9 @@ export const REPORT_DEFINITIONS: Record<string, string> = {
 
 export const KPI_DEFINITIONS: MetricDefinition[] = [
   { label: 'Contracts Written', key: 'contractsWritten', format: INTEGER },
-  { label: 'Active Contracts', key: 'activeContracts', format: INTEGER },
+  { label: 'Activated Contracts', key: 'activeContracts', format: INTEGER },
   { label: 'cancellation', key: 'contractsCancelled', format: INTEGER },
-  { label: 'Gross Income', key: 'grossIncome', format: MONEY },
+  { label: 'Net Income', key: 'grossIncome', format: MONEY },
   { label: 'Net Admin', key: 'netAdmin', format: MONEY },
   { label: 'Average admin', key: 'adminPerContract', format: MONEY },
   { label: 'Net Reserve', key: 'netReserve', format: MONEY },

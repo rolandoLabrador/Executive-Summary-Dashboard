@@ -906,10 +906,10 @@ export class DebugMathTab implements IDashboardTab {
       adminTotalRow.font = { bold: true };
       ws.addRow({});
 
-      // ── SECTION 4: GROSS INCOME Component Breakdown ──────────────────────
+      // ── SECTION 4: NET INCOME Component Breakdown ──────────────────────
       const grossHeaderRow = ws.addRow({
         dealer: realDealerName,
-        category: '── GROSS INCOME COMPONENTS ──',
+        category: '── NET INCOME COMPONENTS ──',
         component: 'Bucket-level breakdown',
       });
       grossHeaderRow.font = { bold: true, italic: true, color: { argb: 'FF5E1E78' } };
@@ -961,7 +961,7 @@ export class DebugMathTab implements IDashboardTab {
       const grossTotalRow = ws.addRow({
         dealer: '',
         category: '',
-        component: 'TOTAL NET GROSS INCOME:',
+        component: 'TOTAL NET INCOME:',
         net: grossNetTotal,
       });
       grossTotalRow.font = { bold: true };
@@ -971,7 +971,7 @@ export class DebugMathTab implements IDashboardTab {
       const excludedHeaderRow = ws.addRow({
         dealer: realDealerName,
         category: '── EXCLUDED COMPONENTS ──',
-        component: 'Buckets explicitly excluded from Gross Income',
+        component: 'Buckets explicitly excluded from Net Income',
       });
       excludedHeaderRow.font = { italic: true, color: { argb: 'FF808080' } };
       excludedHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };

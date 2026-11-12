@@ -431,21 +431,22 @@ export class DuckDBService {
       WHERE activityDate >= '${startIso}' AND activityDate <= '${endIso}';
     `);
 
-    const [activeRow] = await this.query<{ activeCount: bigint; netAdminActive: number }>(`
+    const [activeRow] = await this.query<{ activeCount: bigint }>(`
       WITH latest_contract AS (
         SELECT * EXCLUDE (rn) FROM (
-          SELECT *,
+          SELECT contractNumber, contractStatus,
             ROW_NUMBER() OVER (PARTITION BY contractNumber ORDER BY snapshotDate DESC) as rn
           FROM raw_contracts
           WHERE contractNumber IS NOT NULL AND contractNumber != ''
         ) WHERE rn = 1
       )
       SELECT 
-        COUNT(*) AS activeCount,
-        COALESCE(SUM(adminAmount), 0) AS netAdminActive
-      FROM latest_contract
-      WHERE contractStatus = 'A' AND transactionType != 'Cancellation'
-        AND activityDate >= '${startIso}' AND activityDate <= '${endIso}';
+        COUNT(DISTINCT r.contractNumber) AS activeCount
+      FROM raw_contracts r
+      LEFT JOIN latest_contract l ON r.contractNumber = l.contractNumber
+      WHERE r.transactionType != 'Cancellation'
+        AND r.activityDate >= '${startIso}' AND r.activityDate <= '${endIso}'
+        AND UPPER(COALESCE(l.contractStatus, r.contractStatus, '')) != 'V';
     `);
 
     const [claimSums] = await this.query<{ totalPaid: number; uniqueClaims: bigint }>(`
@@ -462,7 +463,7 @@ export class DuckDBService {
     const activeContracts = Number(activeRow?.activeCount ?? BigInt(0));
     const adminWritten = contractSums?.adminWritten ?? 0;
     const adminCancelled = contractSums?.adminCancelled ?? 0;
-    const netAdmin = activeRow?.netAdminActive ?? adminWritten - adminCancelled;
+    const netAdmin = adminWritten - adminCancelled;
     const reserveWritten = contractSums?.reserveWritten ?? 0;
     const reserveCancelled = contractSums?.reserveCancelled ?? 0;
     const netReserve = reserveWritten - reserveCancelled;

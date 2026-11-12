@@ -84,8 +84,8 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       { width: this.isDealer ? 16 : 30 },
       ...(this.isDealer ? [{ width: 34 }, { width: 36 }] : []),
       { width: 12 }, // Written
-      { width: 12 }, // Active Contracts
-      { width: 16 }, // Gross Income
+      { width: 14 }, // Activated Contracts
+      { width: 16 }, // Net Income
       { width: 14 }, // Cancellations
       { width: 16 }, // Net Admin
       { width: 16 }, // Average admin
@@ -121,8 +121,8 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
       this.isDealer ? 'Dealer Number' : this.name.replace(' Dashboard', ''),
       ...(this.isDealer ? ['Dealer Name', 'Agents'] : []),
       'Written',
-      'Active Contracts',
-      'Gross Income',
+      'Activated Contracts',
+      'Net Income',
       'cancellation',
       'Net Admin',
       'Average admin',

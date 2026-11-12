@@ -34,7 +34,7 @@ export class MonthlyTrendsTab implements IDashboardTab {
     ws.getRow(4).values = [
       'Month',
       'Written',
-      'Active Contracts',
+      'Activated Contracts',
       'Cancellations',
       'Net Admin',
       'Net Reserve',

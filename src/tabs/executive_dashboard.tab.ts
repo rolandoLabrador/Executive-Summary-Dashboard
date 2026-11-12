@@ -233,7 +233,7 @@ export class ExecutiveDashboardTab implements IDashboardTab {
 
     headerRow.getCell(12).value = 'Agent';
 
-    headerRow.getCell(13).value = 'Active Contracts';
+    headerRow.getCell(13).value = 'Activated Contracts';
     headerRow.getCell(14).value = 'Frequency of Claims';
     headerRow.getCell(15).value = 'Claim Severity';
     headerRow.getCell(16).value = 'Net Admin';

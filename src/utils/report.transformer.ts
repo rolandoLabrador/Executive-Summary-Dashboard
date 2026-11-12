@@ -350,12 +350,19 @@ function aggregate(
       latestState.set(transaction.contractNumber, transaction);
     }
   }
-  result.activeContracts = [...latestState.values()].filter(
-    (transaction) =>
-      transaction.contractStatus === 'A' &&
-      transaction.transactionType !== 'Cancellation' &&
-      inRange(transaction.activityDate, start, end),
-  ).length;
+
+  // Activated Contracts: Distinct contracts whose ActivationDate falls within the reporting period (include all, take out voided)
+  const activatedSet = new Set<string>();
+  for (const t of transactions) {
+    if (!t.contractNumber) continue;
+    const latest = latestState.get(t.contractNumber);
+    if (latest && latest.contractStatus?.toUpperCase() === 'V') continue;
+    if (t.contractStatus?.toUpperCase() === 'V') continue;
+    if (t.transactionType !== 'Cancellation' && inRange(t.activityDate, start, end)) {
+      activatedSet.add(t.contractNumber);
+    }
+  }
+  result.activeContracts = activatedSet.size;
 
   const contractStates = new Map<
     string,
@@ -431,8 +438,8 @@ function aggregate(
       result.earnedReserve += state.written * factor;
     }
 
-    const isActive = latest?.contractStatus === 'A' && latest?.transactionType !== 'Cancellation';
-    if (isActive) {
+    const isNonVoid = latest?.contractStatus?.toUpperCase() !== 'V';
+    if (isNonVoid) {
       result.netAdmin += state.adminWritten - state.adminCancelled;
     }
   }
