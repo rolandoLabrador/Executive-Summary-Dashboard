@@ -32,8 +32,6 @@ export const REPORT_DEFINITIONS: Record<string, string> = {
     'All contracts with the status of active within that time period. That will exclude cancellation and voided and expired.',
   'Activated Contracts':
     'Distinct contracts whose metadata.ActivationDate falls within the reporting period include all. Take out voided.',
-  'Active Contracts':
-    'Distinct contracts whose metadata.ActivationDate falls within the reporting period include all. Take out voided.',
   'Net Income':
     'Sum of Net Admin, Net Reserve, and all other non-excluded components (tax, ceding, etc.) from transactions that occurred specifically within the selected reporting period (calculated as Income Written minus Income Cancelled).',
   'Underwriting Profit':
