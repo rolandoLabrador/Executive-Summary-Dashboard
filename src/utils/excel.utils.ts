@@ -45,6 +45,8 @@ export const REPORT_DEFINITIONS: Record<string, string> = {
     'Contracts with ContractStatus E are treated mathematically as New Business (written contracts) that have naturally reached the end of their term. They are included in Contracts Written and Earned Reserve calculations for their respective periods, but are never counted as Active.',
   Cancellations:
     'Distinct cancellation contracts whose metadata.CancelBillDate falls within the reporting period. This is a measure of cancellation activity during the period, not a subtraction from the active cohort.',
+  'Cancellation Rate':
+    'Calculated as Cancellations divided by Activated Contracts (for the selected reporting period).',
   'Net Written Reserve':
     'Sum of written reserve components minus cancelled reserve components from transactions that occurred specifically within the selected reporting period. Calculated for all contracts regardless of their current active/cancelled status.',
   'Net Admin':

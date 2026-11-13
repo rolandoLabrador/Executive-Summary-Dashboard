@@ -484,7 +484,7 @@ export class DuckDBService {
     const underwritingProfit = earnedReserve - claimsPaid;
     const earnedLossRatio = earnedReserve > 0 ? claimsPaid / earnedReserve : null;
     const percentEarned = netReserve > 0 ? earnedReserve / netReserve : null;
-    const cancellationRate = contractsWritten > 0 ? contractsCancelled / contractsWritten : null;
+    const cancellationRate = activeContracts > 0 ? contractsCancelled / activeContracts : null;
     const claimFrequency = contractsWritten > 0 ? claimCount / contractsWritten : null;
     const claimSeverity = claimCount > 0 ? claimsPaid / claimCount : null;
     const adminPerContract = activeContracts > 0 ? netAdmin / activeContracts : null;

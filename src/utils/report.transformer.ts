@@ -320,7 +320,7 @@ function finalize(metrics: MetricValues): MetricValues {
   result.percentEarned = result.netReserve > 0 ? result.earnedReserve / result.netReserve : null;
   result.percentEarned = result.netReserve > 0 ? result.earnedReserve / result.netReserve : null;
   result.cancellationRate =
-    result.contractsWritten > 0 ? result.contractsCancelled / result.contractsWritten : null;
+    result.activeContracts > 0 ? result.contractsCancelled / result.activeContracts : null;
   result.claimFrequency =
     result.contractsWritten > 0 ? result.claimCount / result.contractsWritten : null;
   result.claimSeverity = result.claimCount > 0 ? result.claimsPaid / result.claimCount : null;
