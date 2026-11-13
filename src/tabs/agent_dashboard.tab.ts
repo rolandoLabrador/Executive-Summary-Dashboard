@@ -20,6 +20,10 @@ export class AgentDashboardTab extends BaseThreeTierTab {
     return model.ytdAgents;
   }
 
+  protected getMtdRows(model: ReportModel): DimensionMetric[] {
+    return model.monthlyAgents;
+  }
+
   protected getLimit(_config: ReportConfig): number | undefined {
     return undefined; // No limit for agents
   }

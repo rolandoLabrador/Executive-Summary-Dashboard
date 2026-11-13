@@ -20,6 +20,10 @@ export class DealerDashboardTab extends BaseThreeTierTab {
     return model.ytdDealers;
   }
 
+  protected getMtdRows(model: ReportModel): DimensionMetric[] {
+    return model.monthlyDealers;
+  }
+
   protected getLimit(config: ReportConfig): number | undefined {
     return config.topDealerCount;
   }

@@ -24,6 +24,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
   protected abstract getItdRows(model: ReportModel): DimensionMetric[];
   protected abstract getRollingRows(model: ReportModel): DimensionMetric[];
   protected abstract getYtdRows(model: ReportModel): DimensionMetric[];
+  protected abstract getMtdRows(model: ReportModel): DimensionMetric[];
   protected abstract getLimit(config: ReportConfig): number | undefined;
 
   public render(
@@ -38,7 +39,7 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
     title(
       ws,
       this.heading,
-      `Inception to Date, Rolling 12-Month & Latest Month Results | Through ${formatDate(model.yearToDate.currentEnd)}`,
+      `Inception to Date, Rolling 12-Month, Year to Date & Month to Date Results | Through ${formatDate(model.yearToDate.currentEnd)}`,
       maxCols,
     );
 
@@ -69,11 +70,22 @@ export abstract class BaseThreeTierTab implements IDashboardTab {
     }
 
     if (tables.yearToDate !== false) {
-      this.writeTable(
+      nextRow = this.writeTable(
         ws,
         nextRow,
         `YEAR TO DATE RESULTS (${formatDateRange(model.yearToDate.currentStart, model.yearToDate.currentEnd)})`,
         this.getYtdRows(model),
+        config,
+        maxCols,
+      );
+    }
+
+    if (tables.monthToDate !== false) {
+      this.writeTable(
+        ws,
+        nextRow,
+        `MONTH TO DATE RESULTS (${formatDateRange(model.currentMonth.currentStart, model.currentMonth.currentEnd)})`,
+        this.getMtdRows(model),
         config,
         maxCols,
       );

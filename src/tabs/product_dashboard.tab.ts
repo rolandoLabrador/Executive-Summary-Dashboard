@@ -20,6 +20,10 @@ export class ProductDashboardTab extends BaseThreeTierTab {
     return model.ytdProducts;
   }
 
+  protected getMtdRows(model: ReportModel): DimensionMetric[] {
+    return model.monthlyProducts;
+  }
+
   protected getLimit(_config: ReportConfig): number | undefined {
     return undefined; // No limit for products
   }
